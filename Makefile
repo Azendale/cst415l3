@@ -15,9 +15,8 @@ OBJS = getport.o \
        rsp_if.o \
        rsp.o \
        queue.o \
-       timer.o \
 
-all: rsp_server rsp_client clearport clearconn sendclient recvclient testport
+all: rsp_client clearport clearconn sendclient recvclient
 
 clean:
 	rm -f rsp_server
@@ -26,7 +25,6 @@ clean:
 	rm -f clearconn
 	rm -f sendclient
 	rm -f recvclient
-	rm -f testport
 	rm -f *.o
 
 .c.o:
@@ -53,5 +51,3 @@ clearconn: clearconn.c $(OBJS)
 clearport: clearport.c $(OBJS)
 	gcc $(COPTS) clearport.c -o clearport getport.o rsp_if.o
 
-testport: testport.c $(OBJS)
-	gcc $(COPTS) testport.c -o testport getport.o

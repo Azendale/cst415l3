@@ -2,7 +2,6 @@
 #include <stdio.h>
 
 #include "rsp.h"
-#include "timer.h"
 
 int main(int argc, char **argv)
 {
