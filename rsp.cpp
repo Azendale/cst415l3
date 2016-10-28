@@ -80,6 +80,7 @@ void * rsp_reader(void * args)
         if (ntohs(incoming_packet.length) > 0)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
+            memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(conn->recvq, queuedpacket);
         }
         
