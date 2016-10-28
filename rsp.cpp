@@ -29,7 +29,7 @@ public:
             void * item;
             while (nullptr != (item = Q_Dequeue(recvq)))
             {
-                delete item;
+                delete reinterpret_cast<rsp_message_t *>(item);
             }
             Q_Destroy(recvq);
             recvq = nullptr;
@@ -44,9 +44,9 @@ public:
     uint16_t src_port;
     uint16_t dst_port;
     // These are in HOST order, as they are going to be used in calculations.
-    uint64_t sequence;
-    uint64_t ack_sequence;
-    int farWindow;
+    uint64_t far_first_sequence;
+    uint64_t our_first_sequence;
+    uint16_t far_window;
     
     string connection_name;
     queue_t recvq;
@@ -58,11 +58,30 @@ void * rsp_reader(void * args)
     
     
     // If fin packet, close queue
+    return nullptr;
 }
 
 
 void rsp_init(int window_size)
 {
+}
+
+static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
+{
+    if (rst_far_end)
+    {
+            memset(&request, 0, sizeof(request));
+            request.src_port = htons(conn->src_port);
+            request.dst_port = htons(conn->dst_port);
+            strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
+            request.flags.flags.rst = 1;
+            rsp_transmit(&request);       
+    }
+    if (conn)
+    {
+        delete conn;
+        conn = nullptr;
+    }
 }
 
 rsp_connection_t rsp_connect(const char *connection_name)
@@ -98,9 +117,14 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // LAB3 assumes no drops, so not checking return value here for now
     rsp_receive(&response);
     
+    if (response.flags.flags.rst)
+    {
+        rsp_conn_cleanup(request, conn, false);
+        return nullptr;
+    }
     if (! response.flags.flags.ack || response.flags.flags.rst)
     {
-        delete conn;
+        rsp_conn_cleanup(request, conn, true);
         return nullptr;
     }
     
@@ -112,11 +136,18 @@ rsp_connection_t rsp_connect(const char *connection_name)
     response.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
     conn->connection_name = string(response.connection_name);
     
+    conn->our_first_sequence = 0;
+    conn->far_first_sequence = ntohl(response.sequence);
+    conn->far_window = ntohs(response.window);
+    
     // Spin off read thread
+    if (ptherad fails)
+    {
+        rsp_conn_cleanup(request, conn, true);
+        return nullptr;
+    } 
     
-    
-    
-    return nullptr;
+    return conn;
 }
 
 int rsp_close(rsp_connection_t rsp)
