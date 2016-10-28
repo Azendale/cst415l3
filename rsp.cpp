@@ -19,6 +19,7 @@ public:
         {
             throw std::bad_alloc();
         }
+        pthread_mutex_init(&current_seq_lock, nullptr);
     }
     ~RspData()
     {
@@ -34,6 +35,7 @@ public:
             Q_Destroy(recvq);
             recvq = nullptr;
         }
+        pthread_mutex_destroy(&current_seq_lock);
     }
     
     
@@ -48,6 +50,9 @@ public:
     uint64_t our_first_sequence;
     uint16_t far_window;
     
+    pthread_mutex_t current_seq_lock;
+    uint64_t current_seq;
+    
     string connection_name;
     queue_t recvq;
 };
@@ -55,7 +60,30 @@ public:
 void * rsp_reader(void * args)
 {
     RspData * conn = reinterpret_cast<RspData *>(args);
+    rsp_message_t incoming_packet;
     
+    bool closed = false;
+    while (!closed)
+    {
+        memset(&incoming_packet, 0, sizeof(incoming_packet));
+        // TODO: check and handle errors?
+        rsp_receive(&incoming_packet);
+        // In multi connection support, we would need to check name & ports
+        if (incoming_packet.flags.flags.rst)
+        {
+            closed = true;
+        }
+        else if (incoming_packet.flags.flags.fin)
+        {
+            closed = true;
+        }
+        if (ntohs(incoming_packet.length) > 0)
+        {
+            rsp_message_t * queuedpacket = new rsp_message_t;
+            Q_Enqueue(conn->recvq, queuedpacket);
+        }
+        
+    }
     
     // If fin packet, close queue
     // Quit after fin packet
@@ -192,19 +220,51 @@ int rsp_close(rsp_connection_t rsp)
 
 int rsp_write(rsp_connection_t rsp, void *buff, int size)
 {
+    if (size <= 0)
+    {
+        return -1;
+    }
     RspData * conn = reinterpret_cast<RspData *>(rsp);
-    // lock state
-    // check that it is established, not closing
-    // unlock?
-    // send packet
-    // unlock?
+    rsp_message_t outgoing_packet;
+    memset(&outgoing_packet, 0, sizeof(outgoing_packet));
+    
+    strncpy(outgoing_packet.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
+    outgoing_packet.src_port = conn->src_port;
+    outgoing_packet.dst_port = conn->dst_port;
+    outgoing_packet.length = htons(size);
+    // Window?
+    // LAB3 doesn't need split code but later labs will.
+    memcpy(outgoing_packet.buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
+    
+    pthread_mutex_lock(&(conn->current_seq_lock));
+    outgoing_packet.sequence = conn->current_seq;
+    conn->current_seq += size;
+    pthread_mutex_unlock(&(conn->current_seq_lock));
+    // TODO: error check?
+    rsp_transmit(&outgoing_packet);
+    
     return 0;
 }
 
 int rsp_read(rsp_connection_t rsp, void *buff, int size)
 {
     RspData * conn = reinterpret_cast<RspData *>(rsp);
+    if (size <= 0)
+    {
+        return 2;
+    }
     // Dequeue
+    rsp_message_t * incoming;
+    incoming = reinterpret_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
+    if (nullptr != incoming)
+    {
+        memcpy(buff, incoming->buffer, size);
+        delete incoming;
+    }
+    else
+    {
+        return 1;
+    }
     // write to buf
     return 0;
 }
