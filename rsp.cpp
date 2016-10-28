@@ -58,6 +58,7 @@ void * rsp_reader(void * args)
     
     
     // If fin packet, close queue
+    // Quit after fin packet
     return nullptr;
 }
 
@@ -122,7 +123,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
         rsp_conn_cleanup(request, conn, false);
         return nullptr;
     }
-    if (! response.flags.flags.ack || response.flags.flags.rst)
+    if (! (response.flags.flags.ack && response.flags.flags.syn))
     {
         rsp_conn_cleanup(request, conn, true);
         return nullptr;
@@ -141,7 +142,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     conn->far_window = ntohs(response.window);
     
     // Spin off read thread
-    if (ptherad fails)
+    if (!pthread_create(&(conn->rec_thread), nullptr, rsp_reader, reinterpret_cast<void *>(conn)))
     {
         rsp_conn_cleanup(request, conn, true);
         return nullptr;
@@ -153,10 +154,38 @@ rsp_connection_t rsp_connect(const char *connection_name)
 int rsp_close(rsp_connection_t rsp)
 {
     RspData * conn = reinterpret_cast<RspData *>(rsp);
-    // State to close_wait
+    // State to close_wait (do we even need state for LAB3 or queue enough)
+    
     // Send fin
+    rsp_message_t request;
+    memset(&request, 0, sizeof(request));
+    strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
+    request.src_port = conn->src_port;
+    request.dst_port = conn->dst_port;
+    request.flags.flags.fin = 1;
+    // length is already 0 from memset
+    request.window = htons(g_window);
+    // sequence doesn't make sense if there is no data, right?
+    // ack sequence doesn't make sense, we aren't acking anything here
+    // buffer has no data
+    
+    if (rsp_transmit(&request))
+    {
+        // Couldn't send fin packet -- what to do?
+        
+    }
+    
+    // pthread_join receiver thread, which will quit when it sees a fin
+    pthread_join(conn->rec_thread, nullptr);
+    // Queue should be now closed as recv thread closes it when it exits
     // empty queue, checking each dequeue to see if it errored that the queue is empty
-    // state to closed
+    rsp_message_t * elem = reinterpret_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
+    while (nullptr != elem)
+    {
+        delete elem;
+        elem = reinterpret_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
+    }
+    
     // Return
     return 0;
 }
