@@ -4,7 +4,6 @@
 #include <pthread.h>
 // memset, memcpy
 #include <string.h>
-#include <bsd/string.h>
 
 static int g_window  = 0;
 
@@ -43,7 +42,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // Send connection request
     // fill out struct
     //connection_name[RSP_MAX_CONNECTION_NAME_LEN + 1]
-    strncpy(request.connection_name, connection_name, RSP_MAX_CONNECTION_NAME_LEN + 1);
+    strncpy(request.connection_name, connection_name, RSP_MAX_CONNECTION_NAME_LEN);
     // src_port, dst_port already 0 from memset
     // flags, 0 by default from memset
     request.flags.flags.syn = 1;
