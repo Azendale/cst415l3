@@ -6,7 +6,7 @@
 // memset, memcpy
 #include <string.h>
 
-static int g_window  = 0;
+static int g_window  = 256;
 using std::string;
 
 class RspData
