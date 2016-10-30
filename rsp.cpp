@@ -30,7 +30,7 @@ public:
             void * item;
             while (nullptr != (item = Q_Dequeue(recvq)))
             {
-                delete reinterpret_cast<rsp_message_t *>(item);
+                delete static_cast<rsp_message_t *>(item);
             }
             Q_Destroy(recvq);
             recvq = nullptr;
@@ -59,7 +59,7 @@ public:
 
 void * rsp_reader(void * args)
 {
-    RspData * conn = reinterpret_cast<RspData *>(args);
+    RspData * conn = static_cast<RspData *>(args);
     rsp_message_t incoming_packet;
     
     bool closed = false;
@@ -172,7 +172,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     conn->far_window = ntohs(response.window);
     
     // Spin off read thread
-    if (pthread_create(&(conn->rec_thread), nullptr, rsp_reader, reinterpret_cast<void *>(conn)))
+    if (pthread_create(&(conn->rec_thread), nullptr, rsp_reader, static_cast<void *>(conn)))
     {
         rsp_conn_cleanup(request, conn, true);
         return nullptr;
@@ -183,7 +183,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
 
 int rsp_close(rsp_connection_t rsp)
 {
-    RspData * conn = reinterpret_cast<RspData *>(rsp);
+    RspData * conn = static_cast<RspData *>(rsp);
     // State to close_wait (do we even need state for LAB3 or queue enough)
     
     // Send fin
@@ -209,11 +209,11 @@ int rsp_close(rsp_connection_t rsp)
     pthread_join(conn->rec_thread, nullptr);
     // Queue should be now closed as recv thread closes it when it exits
     // empty queue, checking each dequeue to see if it errored that the queue is empty
-    rsp_message_t * elem = reinterpret_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
+    rsp_message_t * elem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     while (nullptr != elem)
     {
         delete elem;
-        elem = reinterpret_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
+        elem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     }
     
     delete conn;
@@ -228,7 +228,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     {
         return -1;
     }
-    RspData * conn = reinterpret_cast<RspData *>(rsp);
+    RspData * conn = static_cast<RspData *>(rsp);
     rsp_message_t outgoing_packet;
     memset(&outgoing_packet, 0, sizeof(outgoing_packet));
     
@@ -252,14 +252,14 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
 
 int rsp_read(rsp_connection_t rsp, void *buff, int size)
 {
-    RspData * conn = reinterpret_cast<RspData *>(rsp);
+    RspData * conn = static_cast<RspData *>(rsp);
     if (size <= 0)
     {
         return 2;
     }
     // Dequeue
     rsp_message_t * incoming;
-    incoming = reinterpret_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
+    incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
     if (nullptr != incoming)
     {
         memcpy(buff, incoming->buffer, size);
