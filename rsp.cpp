@@ -66,24 +66,24 @@ void * rsp_reader(void * args)
     while (!closed)
     {
         memset(&incoming_packet, 0, sizeof(incoming_packet));
-        // TODO: check and handle errors?
-        rsp_receive(&incoming_packet);
+        int recvCode = rsp_receive(&incoming_packet);
+        if (1 != recvCode && 2 != recvCode)
+        {
+            fprintf(stderr, "Dropped a packet with recvfrom status %d\n", recvCode);
+        }
+        fprintf(stderr, "Got an incoming packet in reader thread.\n");
         // In multi connection support, we would need to check name & ports
-        if (incoming_packet.flags.flags.rst)
-        {
-            closed = true;
-        }
-        else if (incoming_packet.flags.flags.fin)
-        {
-            closed = true;
-        }
         if (ntohs(incoming_packet.length) > 0)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(conn->recvq, queuedpacket);
         }
-        
+        if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.fin)
+        {
+            closed = true;
+            Q_Close(conn->recvq);
+        }
     }
     
     // If fin packet, close queue
@@ -94,6 +94,7 @@ void * rsp_reader(void * args)
 
 void rsp_init(int window_size)
 {
+    g_window = window_size;
 }
 
 static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
@@ -200,7 +201,7 @@ int rsp_close(rsp_connection_t rsp)
     
     if (rsp_transmit(&request))
     {
-        // Couldn't send fin packet -- what to do?
+        // Couldn't send fin packet -- but LAB3 doesn't worry about that
         
     }
     
@@ -214,6 +215,8 @@ int rsp_close(rsp_connection_t rsp)
         delete elem;
         elem = reinterpret_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     }
+    
+    delete conn;
     
     // Return
     return 0;
