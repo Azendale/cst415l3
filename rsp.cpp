@@ -73,7 +73,7 @@ void * rsp_reader(void * args)
         }
         fprintf(stderr, "Got an incoming packet in reader thread.\n");
         // In multi connection support, we would need to check name & ports
-        if (ntohs(incoming_packet.length) > 0)
+        if (incoming_packet.length > 0)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
@@ -235,7 +235,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     strncpy(outgoing_packet.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
     outgoing_packet.src_port = conn->src_port;
     outgoing_packet.dst_port = conn->dst_port;
-    outgoing_packet.length = htons(size);
+    outgoing_packet.length = size;
     // Window?
     // LAB3 doesn't need split code but later labs will.
     memcpy(outgoing_packet.buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
