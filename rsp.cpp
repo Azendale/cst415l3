@@ -172,7 +172,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     conn->far_window = ntohs(response.window);
     
     // Spin off read thread
-    if (!pthread_create(&(conn->rec_thread), nullptr, rsp_reader, reinterpret_cast<void *>(conn)))
+    if (pthread_create(&(conn->rec_thread), nullptr, rsp_reader, reinterpret_cast<void *>(conn)))
     {
         rsp_conn_cleanup(request, conn, true);
         return nullptr;
