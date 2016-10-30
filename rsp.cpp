@@ -5,6 +5,7 @@
 #include <string>
 // memset, memcpy
 #include <string.h>
+#include <iostream>
 
 static int g_window  = 256;
 using std::string;
@@ -69,21 +70,20 @@ void * rsp_reader(void * args)
         int recvCode = rsp_receive(&incoming_packet);
         if (recvCode < 0)
         {
-            fprintf(stderr, "Dropped a packet with recvfrom error status %d\n", recvCode);
+            std::cerr << "Dropped a packet with recvfrom error status " <<  recvCode << std::endl;
             continue;
         }
         // 1 means not enough to have a header
         else if (1 == recvCode)
         {
-            fprintf(stderr, "Dropped a packet with less than a header's worth of data.\n");
+            std::cerr << "Dropped a packet with less than a header's worth of data.\n";
             continue;
         }
         // 2 means enough for a header, but not necsesarily the payload
         else if (2 == recvCode)
         {
-            fprintf(stderr, "Warning: received packet with size not matching the payload. Dropping payload.\n");
+            std::cerr <<  "Warning: received packet with size not matching the payload. Dropping payload.\n";
         }
-        fprintf(stderr, "Got an incoming packet in reader thread.\n");
         // In multi connection support, we would need to check name & ports
         if (incoming_packet.length > 0 && 0 == recvCode)
         {
