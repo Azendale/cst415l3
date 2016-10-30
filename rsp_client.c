@@ -14,7 +14,7 @@ int main(int argc, char **argv)
 
     rsp_connection_t rsp;
 
-    rsp = rsp_connect("eba_rsp_client");
+    rsp = rsp_connect("erik_rsp_client");
 
     if (rsp != NULL) 
     {

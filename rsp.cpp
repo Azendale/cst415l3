@@ -241,7 +241,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     memcpy(outgoing_packet.buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
     
     pthread_mutex_lock(&(conn->current_seq_lock));
-    outgoing_packet.sequence = conn->current_seq;
+    outgoing_packet.sequence = htonl(conn->current_seq);
     conn->current_seq += size;
     pthread_mutex_unlock(&(conn->current_seq_lock));
     // TODO: error check?
