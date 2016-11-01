@@ -16,9 +16,6 @@ int main(int argc, char **argv)
     if (rsp != NULL) 
     {
         printf("Connection established\n");
-        printf("Pausing until newline.\n");
-        char line[256];
-        fgets(line, sizeof(line), stdin);
         printf("Attempting to inject an RST.\n");
         rsp_message_t rstPacket;
         memset(&rstPacket, 0, sizeof(rstPacket));
