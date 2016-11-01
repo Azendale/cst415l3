@@ -14,4 +14,8 @@ t_rsp_1
 t_rsp_1.o
 t_rsp_2
 t_rsp_2.o
+t_rsp_3_postconnect_rst_client
+t_rsp_3_postconnect_rst_client.o
+t_rsp_3_rst_inject
+t_rsp_3_rst_inject.o
 
