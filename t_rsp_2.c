@@ -1,3 +1,7 @@
+// Author: Erik B. Andersen <erik@eoni.com>
+// CST415 Lab3 testing program (test 2)
+// Last modified: 2016-10-31
+//
 // Run this test 3 times, followed by clearconn
 // Third time this is run, it should test what happens when you get an RST on connect
 // Use it to test like this (this is what a passing test should look like,

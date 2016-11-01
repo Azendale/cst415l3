@@ -1,10 +1,11 @@
 #**************************************************
-# Makefile for OIT Nameserver lab
-# CST 415 Lab 1
+# Makefile for OIT CST415 Lab3 simple RSP protocol
+# CST 415 Lab 3
 #
 # Author: Philip Howard
 # Email:  phil.howard@oit.edu
 # Date:   Sept 22, 2016
+# Modifications by Erik Andersen, <erik@eoni.com>, last changed 2016-10-31
 #
 COPTS = -g -O0 -Wall -pthread -Wwrite-strings
 CPPOPTS = $(COPTS) -std=c++11

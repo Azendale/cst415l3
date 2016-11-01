@@ -1,3 +1,6 @@
+// Author: Erik B. Andersen <erik@eoni.com>
+// CST415 Lab3 RSP implementation
+// Last modified: 2016-10-31
 #include "rsp_if.h"
 #include "rsp.h"
 #include "queue.h"

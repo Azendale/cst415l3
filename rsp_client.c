@@ -1,3 +1,6 @@
+// Written by Phil Howard <phil.howard@oit.edu>
+// Small modifications by Erik Andersen <erik@eoni.com> (change connection string)
+// Last modified: 2016-10-31
 #include <string.h>
 #include <stdio.h>
 

@@ -1,3 +1,17 @@
+// Author: Erik B. Andersen <erik@eoni.com>
+// CST415 Lab3 testing program (test 3, part b)
+// Last modified: 2016-10-31
+//
+// Tests what happens when an RST happens after connecting
+// Use: Start the other test3 part first. (./t_rsp_3_rst_inject)
+// Then start this program.
+// It should print something like this:
+//
+//Connection established
+//Pausing until newline.
+//
+//Value of rsp_write after trying to write to RST'd connection: -1
+//Value of rsp_read after trying to read from RST'd connection: -1
 #include <string.h>
 #include <stdio.h>
 
