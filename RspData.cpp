@@ -1,3 +1,6 @@
+// Author: Erik B. Andersen <erik@eoni.com>
+// CST415 Lab3 RSP connection tracking data
+// Last modified: 2016-10-31
 #include "RspData.h"
 #include "rsp_if.h"
 

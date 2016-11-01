@@ -1,11 +1,18 @@
+// Author: Erik B. Andersen <erik@eoni.com>
+// CST415 Lab3 RSP connection tracking data
+// Last modified: 2016-10-31
 #include <string>
 #include "queue.h"
 
 using std::string;
 
+// Connection has not been opened yet
 #define RSP_STATE_UNOPENED 0
+// Connection is open and useable
 #define RSP_STATE_OPEN 1
+// Connection was gracefully closed
 #define RSP_STATE_CLOSED 2
+// Something went wrong and the connection was closed without FINs
 #define RSP_STATE_RST 3
 
 
