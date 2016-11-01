@@ -148,10 +148,10 @@ static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst
 rsp_connection_t rsp_connect(const char *connection_name)
 {
     rsp_message_t request, response;
-    
+    RspData * conn = nullptr;
     try
     {
-        RspData * conn = new RspData;
+        conn = new RspData;
     }
     catch (std::bad_alloc)
     {
