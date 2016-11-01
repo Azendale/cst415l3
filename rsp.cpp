@@ -294,9 +294,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     conn->current_seq += size;
     pthread_mutex_unlock(&(conn->current_seq_lock));
     // No check of return value because LAB3 assumes no dropped packets
-    rsp_transmit(&outgoing_packet);
-    
-    return 0;
+    return rsp_transmit(&outgoing_packet);
 }
 
 int rsp_read(rsp_connection_t rsp, void *buff, int size)
