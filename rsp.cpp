@@ -299,7 +299,7 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
         return -2;
     }
     pthread_mutex_lock(&conn->connection_state_lock);
-    if (RSP_STATE_RST != conn->connection_state)
+    if (RSP_STATE_RST == conn->connection_state)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
