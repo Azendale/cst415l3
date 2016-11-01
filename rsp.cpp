@@ -301,8 +301,8 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
     pthread_mutex_lock(&conn->connection_state_lock);
     if (RSP_STATE_OPEN != conn->connection_state)
     {
-        return -1;
         pthread_mutex_unlock(&conn->connection_state_lock);
+        return -1;
     }
     pthread_mutex_unlock(&conn->connection_state_lock);
     // Dequeue
