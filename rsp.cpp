@@ -10,10 +10,16 @@
 static int g_window  = 256;
 using std::string;
 
+#define RSP_STATE_UNOPENED 0
+#define RSP_STATE_OPEN 1
+#define RSP_STATE_CLOSED 2
+#define RSP_STATE_RST
+
+
 class RspData
 {
 public:
-    RspData()
+    RspData(): src_port(0), dst_port(0), far_first_sequence(0), our_first_sequence(0), far_window(0), current_seq(0), connection_name(""), connection_state(RSP_STATE_UNOPENED)
     {
         recvq = Q_Init();
         if (nullptr == recvq)
@@ -21,6 +27,7 @@ public:
             throw std::bad_alloc();
         }
         pthread_mutex_init(&current_seq_lock, nullptr);
+        pthread_mutex_init(&connection_state_lock, nullptr);
     }
     ~RspData()
     {
@@ -37,6 +44,7 @@ public:
             recvq = nullptr;
         }
         pthread_mutex_destroy(&current_seq_lock);
+        pthread_mutex_destroy(&connection_state_lock);
     }
     
     
@@ -56,6 +64,8 @@ public:
     
     string connection_name;
     queue_t recvq;
+    pthread_mutex_t connection_state_lock;
+    int connection_state;
 };
 
 void * rsp_reader(void * args)
@@ -91,10 +101,21 @@ void * rsp_reader(void * args)
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(conn->recvq, queuedpacket);
         }
-        if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.fin)
+        if (incoming_packet.flags.flags.rst)
         {
             closed = true;
             Q_Close(conn->recvq);
+            pthread_mutex_lock(&conn->connection_state_lock);
+            conn->connection_state = RSP_STATE_RST;
+            pthread_mutex_unlock(&conn->connection_state_lock);
+        }
+        if (incoming_packet.flags.flags.fin)
+        {
+            closed = true;
+            Q_Close(conn->recvq);
+            pthread_mutex_lock(&conn->connection_state_lock);
+            conn->connection_state = RSP_STATE_CLOSED;
+            pthread_mutex_unlock(&conn->connection_state_lock);
         }
     }
     return nullptr;
@@ -128,7 +149,14 @@ rsp_connection_t rsp_connect(const char *connection_name)
 {
     rsp_message_t request, response;
     
-    RspData * conn = new RspData;
+    try
+    {
+        RspData * conn = new RspData;
+    }
+    catch (std::bad_alloc)
+    {
+        return nullptr;
+    }
     if (nullptr == conn)
     {
         return nullptr;
@@ -208,6 +236,10 @@ int rsp_close(rsp_connection_t rsp)
     // ack sequence doesn't make sense, we aren't acking anything here
     // buffer has no data
     
+    pthread_mutex_lock(&conn->connection_state_lock);
+    conn->connection_state = RSP_STATE_CLOSED;
+    pthread_mutex_unlock(&conn->connection_state_lock);
+    
     if (rsp_transmit(&request))
     {
         // Couldn't send fin packet -- but LAB3 doesn't worry about that
@@ -253,7 +285,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     outgoing_packet.sequence = htonl(conn->current_seq);
     conn->current_seq += size;
     pthread_mutex_unlock(&(conn->current_seq_lock));
-    // TODO: error check?
+    // No check of return value because LAB3 assumes no dropped packets
     rsp_transmit(&outgoing_packet);
     
     return 0;
@@ -264,21 +296,34 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
     RspData * conn = static_cast<RspData *>(rsp);
     if (size <= 0)
     {
-        return 2;
+        return -2;
     }
+    pthread_mutex_lock(conn->connection_state_lock);
+    if (RSP_STATE_OPEN != conn->connection_state)
+    {
+        return -1;
+        pthread_mutex_unlock(conn->connection_state_lock);
+    }
+    pthread_mutex_unlock(conn->connection_state_lock);
     // Dequeue
     rsp_message_t * incoming;
     incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
-    if (nullptr != incoming)
+    if (nullptr == incoming)
     {
-        memcpy(buff, incoming->buffer, size);
-        delete incoming;
+        // Null without blocking means queue is empty
+        // which means closed connection. Return 0 to signal that.
+        return 0;
     }
     else
     {
-        return 1;
+        // LAB3 assumes the requested size is the size of the packet,
+        // so we will not deal with if they only wanted to take half
+        // of the payload from a packet and leave the rest for the
+        // next read in this version of the lab.
+        int copysize = std::min(size, incoming->length);
+        memcpy(buff, incoming->buffer, copysize);
+        delete incoming;
+        return copysize;
     }
-    // write to buf
-    return 0;
 }
 
