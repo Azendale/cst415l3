@@ -240,10 +240,11 @@ int rsp_close(rsp_connection_t rsp)
     conn->connection_state = RSP_STATE_CLOSED;
     pthread_mutex_unlock(&conn->connection_state_lock);
     
+    bool closeRequestFail = false;
     if (rsp_transmit(&request))
     {
         // Couldn't send fin packet -- but LAB3 doesn't worry about that
-        
+        closeRequestFail = true;
     }
     
     // pthread_join receiver thread, which will quit when it sees a fin
@@ -260,7 +261,14 @@ int rsp_close(rsp_connection_t rsp)
     delete conn;
     
     // Return
-    return 0;
+    if (closeRequestFail)
+    {
+        return -1;
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 int rsp_write(rsp_connection_t rsp, void *buff, int size)
