@@ -101,7 +101,7 @@ void * rsp_reader(void * args)
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(conn->recvq, queuedpacket);
         }
-        if (incoming_packet.flags.flags.rst)
+        if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
         {
             closed = true;
             Q_Close(conn->recvq);
