@@ -278,6 +278,13 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
         return -1;
     }
     RspData * conn = static_cast<RspData *>(rsp);
+    pthread_mutex_lock(&conn->connection_state_lock);
+    if (RSP_STATE_RST == conn->connection_state)
+    {
+        pthread_mutex_unlock(&conn->connection_state_lock);
+        return -1;
+    }
+    pthread_mutex_unlock(&conn->connection_state_lock);
     rsp_message_t outgoing_packet;
     memset(&outgoing_packet, 0, sizeof(outgoing_packet));
     

@@ -19,6 +19,9 @@ int main(int argc, char **argv)
     if (rsp != NULL) 
     {
         printf("Connection established\n");
+        printf("Pausing until newline.\n");
+        char line[256];
+        fgets(line, sizeof(line), stdin);
         printf("Value of rsp_write after trying to write to RST'd connection: %d\n", rsp_write(rsp, buff, strlen(buff)+1));
         memset(buff, 0, sizeof(buff));
         printf("Value of rsp_read after trying to read from RST'd connection: %d\n", rsp_read(rsp, buff, sizeof(buff)));
