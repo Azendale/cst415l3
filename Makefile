@@ -16,7 +16,7 @@ OBJS = getport.o \
        rsp.o \
        queue.o \
 
-all: rsp_client clearport clearconn sendclient recvclient t_rsp_1
+all: rsp_client clearport clearconn sendclient recvclient t_rsp_1 t_rsp_2
 
 clean:
 	rm -f rsp_server
@@ -26,6 +26,7 @@ clean:
 	rm -f sendclient
 	rm -f recvclient
 	rm -f t_rsp_1
+	rm -f t_rsp_2
 	rm -f *.o
 
 .c.o:
@@ -39,6 +40,9 @@ rsp_server: rsp_server.o $(OBJS)
 
 t_rsp_1: t_rsp_1.o $(OBJS)
 	g++ $(COPTS) t_rsp_1.o -o t_rsp_1 $(OBJS) $(LOPTS)
+
+t_rsp_2: t_rsp_2.o $(OBJS)
+	g++ $(COPTS) t_rsp_2.o -o t_rsp_2 $(OBJS) $(LOPTS)
 
 rsp_client: rsp_client.o $(OBJS)
 	g++ $(COPTS) rsp_client.o -o rsp_client $(OBJS) $(LOPTS)

@@ -12,4 +12,6 @@ sendclient
 sendclient.o
 t_rsp_1
 t_rsp_1.o
+t_rsp_2
+t_rsp_2.o
 
