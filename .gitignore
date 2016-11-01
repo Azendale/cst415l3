@@ -10,4 +10,6 @@ rsp_client.o
 rsp_if.o
 sendclient
 sendclient.o
+t_rsp_1
+t_rsp_1.o
 
