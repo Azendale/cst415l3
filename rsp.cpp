@@ -13,7 +13,7 @@ using std::string;
 #define RSP_STATE_UNOPENED 0
 #define RSP_STATE_OPEN 1
 #define RSP_STATE_CLOSED 2
-#define RSP_STATE_RST
+#define RSP_STATE_RST 3
 
 
 class RspData
@@ -298,13 +298,13 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
     {
         return -2;
     }
-    pthread_mutex_lock(conn->connection_state_lock);
+    pthread_mutex_lock(&conn->connection_state_lock);
     if (RSP_STATE_OPEN != conn->connection_state)
     {
         return -1;
-        pthread_mutex_unlock(conn->connection_state_lock);
+        pthread_mutex_unlock(&conn->connection_state_lock);
     }
-    pthread_mutex_unlock(conn->connection_state_lock);
+    pthread_mutex_unlock(&conn->connection_state_lock);
     // Dequeue
     rsp_message_t * incoming;
     incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
@@ -320,7 +320,11 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
         // so we will not deal with if they only wanted to take half
         // of the payload from a packet and leave the rest for the
         // next read in this version of the lab.
-        int copysize = std::min(size, incoming->length);
+        int copysize = size;
+        if (incoming->length < copysize)
+        {
+            copysize = incoming->length;
+        }
         memcpy(buff, incoming->buffer, copysize);
         delete incoming;
         return copysize;
