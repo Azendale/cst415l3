@@ -16,6 +16,7 @@ OBJS = getport.o \
        rsp_if.o \
        rsp.o \
        queue.o \
+       RspData.o \
 
 all: rsp_client clearport clearconn sendclient recvclient t_rsp_1 t_rsp_2 t_rsp_3_postconnect_rst_client t_rsp_3_rst_inject
 

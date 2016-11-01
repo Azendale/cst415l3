@@ -9,67 +9,10 @@
 // memset, memcpy
 #include <string.h>
 #include <iostream>
+#include "RspData.h"
 
 static int g_window  = 256;
 using std::string;
-
-#define RSP_STATE_UNOPENED 0
-#define RSP_STATE_OPEN 1
-#define RSP_STATE_CLOSED 2
-#define RSP_STATE_RST 3
-
-
-class RspData
-{
-public:
-    RspData(): src_port(0), dst_port(0), far_first_sequence(0), our_first_sequence(0), far_window(0), current_seq(0), connection_name(""), connection_state(RSP_STATE_UNOPENED)
-    {
-        recvq = Q_Init();
-        if (nullptr == recvq)
-        {
-            throw std::bad_alloc();
-        }
-        pthread_mutex_init(&current_seq_lock, nullptr);
-        pthread_mutex_init(&connection_state_lock, nullptr);
-    }
-    ~RspData()
-    {
-        if (recvq)
-        {
-            // Under what senarios can this fail? Unless pthread_cond_broadcast fails, I don't see how it would
-            Q_Close(recvq);
-            void * item;
-            while (nullptr != (item = Q_Dequeue(recvq)))
-            {
-                delete static_cast<rsp_message_t *>(item);
-            }
-            Q_Destroy(recvq);
-            recvq = nullptr;
-        }
-        pthread_mutex_destroy(&current_seq_lock);
-        pthread_mutex_destroy(&connection_state_lock);
-    }
-    
-    
-    // List for each piece of state what threads read, write it, and decide if lock is needed.
-    pthread_t rec_thread;
-    // Set by rsp_connect, read by write and close, no lock needed
-    // We plan to do no math on the following two variables, so by convention, they will be in network order
-    uint16_t src_port;
-    uint16_t dst_port;
-    // These are in HOST order, as they are going to be used in calculations.
-    uint64_t far_first_sequence;
-    uint64_t our_first_sequence;
-    uint16_t far_window;
-    
-    pthread_mutex_t current_seq_lock;
-    uint64_t current_seq;
-    
-    string connection_name;
-    queue_t recvq;
-    pthread_mutex_t connection_state_lock;
-    int connection_state;
-};
 
 void * rsp_reader(void * args)
 {
