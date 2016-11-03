@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "rsp_if.h"
 #include "getport.h"
@@ -20,56 +21,63 @@ static char g_hostname[256] = "unix.cset.oit.edu";
 
 static const int HEADER_SIZE = sizeof(rsp_message_t) - RSP_MAX_SEND_SIZE;
 
-//***********************************
-//*********** Contains race *********
-//***********************************
+static pthread_mutex_t g_init_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static void init_socket()
 {
+    int fd;
+
     if (g_server_fd < 0)
     {
-        g_server_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        pthread_mutex_lock(&g_init_lock);
         if (g_server_fd < 0)
         {
-            perror("Unable to create socket for server\n");
-            exit(1);
+            fd = socket(AF_INET, SOCK_DGRAM, 0);
+            if (fd < 0)
+            {
+                perror("Unable to create socket for server\n");
+                exit(1);
+            }
+
+            g_server_port = lookup_port("rsp_server");
+            if (g_server_port < 0)
+            {
+                fprintf(stderr, "Unable to find rsp_server\n");
+                exit(1);
+            }
+
+            struct sockaddr_in myaddr;
+            memset((char *)&myaddr, 0, sizeof(myaddr));
+            myaddr.sin_family = AF_INET;
+            myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+            myaddr.sin_port = htons(0);
+
+            if (bind(fd,(struct sockaddr*)&myaddr,sizeof(myaddr)) != 0)
+            {
+                perror("Unable to bind to socket\n");
+                exit(1);
+            }
+
+            struct addrinfo hints;
+            struct addrinfo *addr;
+
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_INET;
+
+            if (getaddrinfo(g_hostname, NULL, &hints, &addr) != 0)
+            {
+                perror("Error getting address info: ");
+                exit(1);
+            }
+
+            memcpy(&g_server_addr, addr->ai_addr, addr->ai_addrlen);
+            g_server_addr.sin_port = htons(g_server_port);
+
+            freeaddrinfo(addr);
+
+            g_server_fd = fd;
         }
-
-        g_server_port = lookup_port("rsp_server");
-        if (g_server_port < 0)
-        {
-            fprintf(stderr, "Unable to communicate with name server: %d\n",
-                    g_server_port);
-            exit(1);
-        }
-
-        struct sockaddr_in myaddr;
-        memset((char *)&myaddr, 0, sizeof(myaddr));
-        myaddr.sin_family = AF_INET;
-        myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-        myaddr.sin_port = htons(0);
-
-        if (bind(g_server_fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) != 0)
-        {
-            perror("Unable to bind to socket\n");
-            exit(1);
-        }
-
-        struct addrinfo hints;
-        struct addrinfo *addr;
-
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-
-        if (getaddrinfo(g_hostname, NULL, &hints, &addr) != 0)
-        {
-            perror("Error getting address info: ");
-            exit(1);
-        }
-
-        memcpy(&g_server_addr, addr->ai_addr, addr->ai_addrlen);
-        g_server_addr.sin_port = htons(g_server_port);
-
-        freeaddrinfo(addr);
+        pthread_mutex_unlock(&g_init_lock);
     }
 }
 //*********************************************************

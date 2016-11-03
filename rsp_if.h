@@ -39,8 +39,10 @@ typedef struct
     } flags;
     uint8_t length;
     uint16_t window;
-    uint64_t sequence;
-    uint64_t ack_sequence;
+    uint32_t sequence;
+    uint32_t reserved_1;
+    uint32_t ack_sequence;
+    uint32_t reserved_2;
     char buffer[RSP_MAX_SEND_SIZE];
 } rsp_message_t;
 
