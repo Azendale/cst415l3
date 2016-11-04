@@ -1,5 +1,5 @@
 // Author: Erik B. Andersen <erik@eoni.com>
-// CST415 Lab3 RSP implementation
+// CST415 Lab4 RSP implementation
 // Last modified: 2016-10-31
 #include "rsp_if.h"
 #include "rsp.h"
@@ -11,8 +11,35 @@
 #include <iostream>
 #include "RspData.h"
 
+// Way high for debugging for now
+#define RSP_TIMEOUT 7
+
 static int g_window  = 256;
+static pthread_t g_timerThread;
+static pthread_t g_readerThread;
+// Next 3 lines are so the timer and read functions can blocking wait on a condition variable instead of a read when we have no connections
+static bool g_OpenConnections = false;
+static pthread_mutex_t g_OpenConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_OpenConnectionsCond;
+
 using std::string;
+
+void * rsp_timer(void * args)
+{
+    RspData * conn = static_cast<RspData *>(args);
+    while (!Q_Is_Closed(conn->recvq))
+    {
+        // Wait for timeout period to expire
+        struct timespec delay;
+        delay.tv_sec = RSP_TIMEOUT / 1000;
+        delay.tv_nsec = (RSP_TIMEOUT%1000) * 1000000;
+        nanosleep(&delay, NULL);
+        
+        // Check for timeouts and handle
+    }
+
+    return nullptr;
+}
 
 void * rsp_reader(void * args)
 {
@@ -24,6 +51,7 @@ void * rsp_reader(void * args)
     {
         memset(&incoming_packet, 0, sizeof(incoming_packet));
         int recvCode = rsp_receive(&incoming_packet);
+        // Phil says just kill the connection if the return value is not 0
         if (recvCode < 0)
         {
             std::cerr << "Dropped a packet with recvfrom error status " <<  recvCode << std::endl;
@@ -47,6 +75,7 @@ void * rsp_reader(void * args)
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(conn->recvq, queuedpacket);
         }
+        //TODO: Send acks!
         if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
         {
             closed = true;
@@ -71,6 +100,16 @@ void * rsp_reader(void * args)
 void rsp_init(int window_size)
 {
     g_window = window_size;
+    pthread_cond_init(&g_OpenConnectionsCond);
+    // Need a list of open connections with proper lock here
+    // Need to be able to find connection by name
+    // Phil says we don't need to differentiate connections with same name and different ports
+}
+
+void rsp_shutdown()
+{
+    // Stop the reader thread
+    // Free any resources or locks
 }
 
 static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
