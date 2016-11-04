@@ -10,6 +10,7 @@
 #include <string.h>
 #include <iostream>
 #include "RspData.h"
+#include <map>
 
 // Way high for debugging for now
 #define RSP_TIMEOUT 7
@@ -20,7 +21,8 @@ static pthread_t g_readerThread;
 // Next 3 lines are so the timer and read functions can blocking wait on a condition variable instead of a read when we have no connections
 static bool g_OpenConnections = false;
 static pthread_mutex_t g_OpenConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_OpenConnectionsCond;
+static pthread_cond_t g_OpenConnectionsCond = PTHREAD_COND_INITIALIZER;
+static std::map<std::string, RspData> connections;
 
 using std::string;
 
@@ -100,7 +102,6 @@ void * rsp_reader(void * args)
 void rsp_init(int window_size)
 {
     g_window = window_size;
-    pthread_cond_init(&g_OpenConnectionsCond);
     // Need a list of open connections with proper lock here
     // Need to be able to find connection by name
     // Phil says we don't need to differentiate connections with same name and different ports
@@ -132,6 +133,10 @@ static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst
 
 rsp_connection_t rsp_connect(const char *connection_name)
 {
+    // Lock the g_OpenConnections lock
+    // check to see if there are any open connections
+    // Unlock the lock
+    // If we changed it, broadcast/signal
     rsp_message_t request, response;
     RspData * conn = nullptr;
     try
