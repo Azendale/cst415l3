@@ -12,32 +12,79 @@
 #include "RspData.h"
 #include <map>
 
+typedef struct
+{
+    rsp_message_t packet;
+    uint64_t lastSent;
+    uint8_t sendCount;
+} ackq_entry_t;
+
 // Way high for debugging for now
-#define RSP_TIMEOUT 7
+#define RSP_TIMEOUT 7000
 
 static int g_window  = 256;
 static pthread_t g_timerThread;
 static pthread_t g_readerThread;
 // Next 3 lines are so the timer and read functions can blocking wait on a condition variable instead of a read when we have no connections
+// Who can close a connection: Reader thread, or a close call from main thread
 static bool g_OpenConnections = false;
 static pthread_mutex_t g_OpenConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_OpenConnectionsCond = PTHREAD_COND_INITIALIZER;
-static std::map<std::string, RspData> connections;
+static pthread_mutex_t g_connectionsLock = PTHREAD_MUTEX_INITIALIZER;
+static std::map<std::string, RspData> g_connections;
 
 using std::string;
 
+// Returns a milliseconds since epoch timestamp
+static uint64_t timestamp()
+{
+    struct timeval time;
+    uint64_t timestamp;
+
+    gettimeofday(&time, NULL);
+
+    timestamp = time.tv_sec;
+    timestamp *= 1000;
+    timestamp += time.tv_usec/1000;
+
+    return timestamp;
+}
+
+void sleepRspTimeout()
+{
+    struct timespec delay;
+    delay.tv_sec = RSP_TIMEOUT / 1000;
+    delay.tv_nsec = (RSP_TIMEOUT%1000) * 1000000;
+    nanosleep(&delay, NULL);
+}
+
+uint64_t expireDelay(uint64_t pastTimestamp)
+{
+    return timestamp() - pastTimestamp + RSP_TIMEOUT;
+}
+    
+void sleepMilliseconds(uint64_t msdelay)
+{
+    struct timespec delay;
+    delay.tv_sec =  msdelay / 1000;
+    delay.tv_nsec = (msdelay%1000) * 1000000;
+    nanosleep(&delay, NULL);
+}
+
+// One timer thread per connection
 void * rsp_timer(void * args)
 {
     RspData * conn = static_cast<RspData *>(args);
-    while (!Q_Is_Closed(conn->recvq))
+    pthread_mutex_lock(&conn->connection_state_lock);
+    conn->ackq
+    while (RSP_STATE_CLOSED != conn->connection_state && /* ack queue not empty */)
     {
+        pthread_mutex_unlock(&conn->connection_state_lock);
         // Wait for timeout period to expire
-        struct timespec delay;
-        delay.tv_sec = RSP_TIMEOUT / 1000;
-        delay.tv_nsec = (RSP_TIMEOUT%1000) * 1000000;
-        nanosleep(&delay, NULL);
-        
+        sleepRspTimeout();
+       
         // Check for timeouts and handle
+        // lock, check that we actually need to do something, do it, unlock
     }
 
     return nullptr;
@@ -48,29 +95,45 @@ void * rsp_reader(void * args)
     RspData * conn = static_cast<RspData *>(args);
     rsp_message_t incoming_packet;
     
-    bool closed = false;
+    pthread_mutex_lock(&g_OpenConnectionsLock);
+    pthread_cond_wait(&g_OpenConnectionsCond, &g_OpenConnectionsLock);
+    while (!g_OpenConnections)
+    {
+        pthread_cond_wait(&g_OpenConnectionsCond, &g_OpenConnectionsLock);
+    }
     while (!closed)
     {
         memset(&incoming_packet, 0, sizeof(incoming_packet));
         int recvCode = rsp_receive(&incoming_packet);
         // Phil says just kill the connection if the return value is not 0
-        if (recvCode < 0)
+        if (recvCode != 0)
         {
-            std::cerr << "Dropped a packet with recvfrom error status " <<  recvCode << std::endl;
+            std::cerr << "Got nonzero recv code: " <<  recvCode << std::endl;
+            if (2 == recvCode)
+            {
+                // Can match packet to a connection. Send RST for connection to make sure it's dead
+            }
             continue;
         }
-        // 1 means not enough to have a header
-        else if (1 == recvCode)
+        
+        // Ensure null truncation
+        incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
+        std::string connName = std::string(incoming_packet.connection_name);
+        //pthread_mutex_lock(&g_connectionsLock);
+        // Find thread by name
+        auto it = g_connections.find(connName);
+        if (g_connections.cend() != it)
         {
-            std::cerr << "Dropped a packet with less than a header's worth of data.\n";
-            continue;
+            // Handle packet
         }
-        // 2 means enough for a header, but not necsesarily the payload
-        else if (2 == recvCode)
+        else
         {
-            std::cerr <<  "Warning: received packet with size not matching the payload. Dropping payload.\n";
+            // Couldn't find matching connection
+            std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
         }
-        // In multi connection support, we would need to check name & ports
+        //pthread_mutex_unlock(&g_connectionsLock);
+        
+        
         if (incoming_packet.length > 0 && 0 == recvCode)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
@@ -102,10 +165,18 @@ void * rsp_reader(void * args)
 void rsp_init(int window_size)
 {
     g_window = window_size;
-    // Need a list of open connections with proper lock here
-    // Need to be able to find connection by name
     // Phil says we don't need to differentiate connections with same name and different ports
-}
+    pthread_mutex_lock(&g_OpenConnectionsLock);
+    g_OpenConnections = false;
+    pthread_mutex_unlock(&g_OpenConnectionsLock);
+    
+    // Spin off read thread
+    if (pthread_create(&(g_readerThread), nullptr, rsp_reader, static_cast<void *>(conn)))
+    {
+        // TODO: how should we fail here?
+    } 
+    
+ }
 
 void rsp_shutdown()
 {
@@ -199,7 +270,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     conn->far_window = ntohs(response.window);
     
     // Spin off read thread
-    if (pthread_create(&(conn->rec_thread), nullptr, rsp_reader, static_cast<void *>(conn)))
+    if (pthread_create(&(conn->timer_thread), nullptr, rsp_timer, static_cast<void *>(conn)))
     {
         rsp_conn_cleanup(request, conn, true);
         return nullptr;
