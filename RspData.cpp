@@ -16,8 +16,8 @@ RspData::RspData(): src_port(0), dst_port(0), far_first_sequence(0), our_first_s
     {
         throw std::bad_alloc();
     }
-    pthread_mutex_init(&current_seq_lock, nullptr);
     pthread_mutex_init(&connection_state_lock, nullptr);
+    pthread_cond_init(&connection_state_cond, nullptr);
 }
 
 RspData::~RspData()

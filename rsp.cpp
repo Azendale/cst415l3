@@ -195,6 +195,22 @@ static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst
             request.flags.flags.rst = 1;
             rsp_transmit(&request);       
     }
+    // Must release lock first to ensure we can avoid deadlock
+    pthread_mutex_unlock(&conn->connection_state_lock);
+    
+    // Ensure the connection is removed from the global list
+    pthread_mutex_lock(&g_OpenConnectionsLock);
+    auto it = g_OpenConnections.find(conn->connection_name);
+    if (g_OpenConnections.end() != it)
+    {
+        g_OpenConnections.erase(it);
+    }
+    // This hand over hand locking may be unessesary, I can't come up with a scenario where the client can get access to it yet since we haven't returned from rsp_connect, and the receive thread case is handled.
+    pthread_mutex_lock(&conn->connection_state_lock);
+    pthread_mutex_unlock(&g_OpenConnectionsLock);
+    
+    // Now that the receive thread can't access the connection, clean it up
+    pthread_mutex_unlock(&conn->connection_state_lock);
     if (conn)
     {
         delete conn;
@@ -204,11 +220,11 @@ static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst
 
 rsp_connection_t rsp_connect(const char *connection_name)
 {
-    // Lock the g_OpenConnections lock
-    // check to see if there are any open connections
-    // Unlock the lock
-    // If we changed it, broadcast/signal
+    // Prepare as much as possible before entering locked stage
     rsp_message_t request, response;
+    memset(&request, 0, sizeof(request));
+    memset(&response, 0, sizeof(response));
+    
     RspData * conn = nullptr;
     try
     {
@@ -222,11 +238,10 @@ rsp_connection_t rsp_connect(const char *connection_name)
     {
         return nullptr;
     }
-    memset(&request, 0, sizeof(request));
-    memset(&response, 0, sizeof(response));
     
-    // Send connection request
-    // fill out struct
+    // make sure we truncate
+    conn.connection_name = std::string(connection_name).substr(0, RSP_MAX_CONNECTION_NAME_LEN);
+    // fill out struct as much as possible before locking the main map of connections
     //connection_name[RSP_MAX_CONNECTION_NAME_LEN + 1]
     strncpy(request.connection_name, connection_name, RSP_MAX_CONNECTION_NAME_LEN);
     // src_port, dst_port already 0 from memset
@@ -235,28 +250,74 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // length -- 0 from memset, no payload on this syn, so already correct
     // window
     request.window = htons(g_window);
-    // sequence -- not doing acks yet, but seems like an OK place to start
-    // ack_sequence, not doing acks yet, nothing to ack on initial connect anyway
+    // sequence -- 0 seems like an OK place to start
+    // ack_sequence, nothing to ack on initial connect anyway
     // buffer[RSP_MAX_SEND_SIZE] -- no payload, empty
+     
+    // There is no way for anyone else to have access to this out of order lock, so there is no deadlock potential from this out of order locking
+    pthread_mutex_lock(&conn->connection_state_lock);
     
-    // LAB3 assumes no drops, so not checking return value here for now
-    rsp_transmit(&request);
+
+    // Lock the g_OpenConnections lock
+    // While holding this lock, we should atomically reserve a local connection name
+    pthread_mutex_lock(&g_OpenConnections);
+    // Need to make sure that we do not have conflicting name
+    if (g_connections.count(connName) != 0)
+    {
+        std::cerr << "Connection already exists locally with that name." << std::endl;
+        pthread_mutex_unlock(&conn->connection_state_lock);
+        delete conn;
+        pthread_mutex_unlock(&g_OpenConnections);
+        return nullptr;
+    }
+    // Insert new connection
+    g_OpenConnections[conn.connection_name] = conn;
     
-    // Read (block) for SYNACK to connection
-    // LAB3 assumes no drops, so not checking return value here for now
-    rsp_receive(&response);
+    // If we are the first connection, broadcast/signal
+    if (1 == g_OpenConnections.size())
+    {
+        pthread_cond_broadcast(&g_OpenConnectionsCond);
+    }
+     // Connection inserted into list and we hold the lock for the connection, unlock the main lock
+    pthread_mutex_unlock(&g_OpenConnections);
     
-    if (response.flags.flags.rst)
+    // Send connection request
+    if (0 != rsp_transmit(&request))
+    {
+        // Something wrong with the network. Give up on this connection (maybe we should give up on all connections even?)
+        rsp_conn_cleanup(request, conn, false);
+        return nullptr;
+    }
+    
+    // Can't rsp_receive here, because that will be picked up by the RSP reader thread.
+    // connection is not open until we get the response. So wait on the connection state condition
+    // We already have the condition of this connection locked
+    pthread_cond_wait(&conn->connection_state_cond);
+    while (RSP_STATE_OPEN != conn->connection_state || RSP_STATE_RST != conn->connection_state)
+    {
+        pthread_cond_wait(&conn->connection_state_cond);
+    }
+    // we have the lock back
+    if (RSP_STATE_OPEN == conn->connection_state)
+    {
+        // if we are here, connection state is open, set up the send timer and return
+        // Spin off read thread
+        if (pthread_create(&(conn->timer_thread), nullptr, rsp_timer, static_cast<void *>(conn)))
+        {
+            rsp_conn_cleanup(request, conn, true);
+            return nullptr;
+        } 
+    }
+    // other option is RSP_STATE_RST
+    else
     {
         rsp_conn_cleanup(request, conn, false);
         return nullptr;
     }
-    if (! (response.flags.flags.ack && response.flags.flags.syn))
-    {
-        rsp_conn_cleanup(request, conn, true);
-        return nullptr;
-    }
     
+    pthread_mutex_unlock(&conn->connection_state_lock);
+    
+#warning trailing code at end of rsp_connect that belongs in rsp_reciever section for SYNACK packets
     // Parse src and dest port, save them
     conn->src_port = response.src_port;
     conn->dst_port = response.dst_port;
@@ -268,13 +329,6 @@ rsp_connection_t rsp_connect(const char *connection_name)
     conn->our_first_sequence = 0;
     conn->far_first_sequence = ntohl(response.sequence);
     conn->far_window = ntohs(response.window);
-    
-    // Spin off read thread
-    if (pthread_create(&(conn->timer_thread), nullptr, rsp_timer, static_cast<void *>(conn)))
-    {
-        rsp_conn_cleanup(request, conn, true);
-        return nullptr;
-    } 
     
     return conn;
 }

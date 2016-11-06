@@ -33,17 +33,16 @@ public:
     // We plan to do no math on the following two variables, so by convention, they will be in network order
     uint16_t src_port;
     uint16_t dst_port;
-    // These are in HOST order, as they are going to be used in calculations.
-    uint64_t far_first_sequence;
-    uint64_t near_first_sequence;
     //uint16_t far_window;
     
     uint64_t current_seq;
+    uint64_t ack_highwater;
     
     string connection_name;
     queue_t recvq;
     queue_t ackq;
     pthread_mutex_t connection_state_lock;
+    pthread_cond_t connection_state_cond;
     int connection_state;
     int last_recv_ack_num;
 };
