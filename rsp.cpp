@@ -334,34 +334,48 @@ rsp_connection_t rsp_connect(const char *connection_name)
     return conn;
 }
 
+// timesSentSoFar includes this time, should already be set by caller
+static void ackq_enqueue_packet(queue_t ackq, rsp_message_t & outgoing_packet, uint8_t timesSentSoFar)
+{
+    ackq_entry_t * queueItem;
+    queueItem = new ackq_entry_t;
+    memcpy(queueItem->packet, &outgoing_packet, sizeof(rsp_message_t));
+    queueItem->lastSent = timestamp();
+    queueItem->sendCount = timesSentSoFar;
+    Q_Enqueue(ackq, queueItem);
+}
+
+static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
+{
+    memset(&request, 0, sizeof(request));
+    strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
+    request.src_port = conn->src_port;
+    request.dst_port = conn->dst_port;
+    request.window = htons(g_window);
+    // Not totally sure this shouldn't be set by the calling function. We'll see
+    request.sequence = htonl(conn->current_seq);
+}
+
 int rsp_close(rsp_connection_t rsp)
 {
     RspData * conn = static_cast<RspData *>(rsp);
     
     // Send fin
     rsp_message_t request;
-    memset(&request, 0, sizeof(request));
-    strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
-    request.src_port = conn->src_port;
-    request.dst_port = conn->dst_port;
+    prepare_outgoing_packet(conn, request);
     request.flags.flags.fin = 1;
-    // length is already 0 from memset
-    request.window = htons(g_window);
+    // length is already 0 from memset in the prepare outgoing packet function
     // ack sequence doesn't make sense, we aren't acking anything here
     // buffer has no data
     
     pthread_mutex_lock(&conn->connection_state_lock);
     conn->connection_state = RSP_STATE_WECLOSED
-    request.sequence = conn->current_seq;
     
     bool closeRequestFail = false;
     // (if sending the fin packet worked)
     if (!rsp_transmit(&request))
     {
-#warning don't use pointer to stack memory, as we are going to try to delete it
-#warning need to insert packet into ack queue with sent count and time
-#warning we should probably make a standard function to do that
-        Q_Enqueue(conn->ackq, &request);
+        ackq_enqueue_packet(conn->ackq, request, 1);
         
         // Since we were able to send the fin, wait for it to be acked or timed out
         pthread_cond_wait(&conn->connection_state);
@@ -374,14 +388,15 @@ int rsp_close(rsp_connection_t rsp)
     {
         // Couldn't send. Something is quite broken getting to the RSP server
         conn->connection_state = RSP_STATE_RST;
-        ackq_entry_t *elem = static_cast<ackq_entry_t *>(Q_Dequeue_Nowait(conn->ackq));
-        while (nullptr != elem)
-        {
-            delete elem;
-            elem = static_cast<ackq_entry_t *>Q_Dequeue_Nowait(conn->ackq));
-        }
     }
     
+    // Ensure both queues are empty
+    ackq_entry_t *elem = static_cast<ackq_entry_t *>(Q_Dequeue_Nowait(conn->ackq));
+    while (nullptr != elem)
+    {
+        delete elem;
+        elem = static_cast<ackq_entry_t *>Q_Dequeue_Nowait(conn->ackq));
+    }
     // Queue should be now closed as recv thread closes when it gets the fin in the right order
     // (or timeout times the connection out)
     // empty queue, checking each dequeue to see if it errored that the queue is empty
@@ -413,30 +428,25 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
         return -1;
     }
     RspData * conn = static_cast<RspData *>(rsp);
+    rsp_message_t outgoing_packet;
     pthread_mutex_lock(&conn->connection_state_lock);
     if (RSP_STATE_RST == conn->connection_state)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
     }
-    pthread_mutex_unlock(&conn->connection_state_lock);
-    rsp_message_t outgoing_packet;
-    memset(&outgoing_packet, 0, sizeof(outgoing_packet));
+    prepare_outgoing_packet(conn, outgoing_packet);
     
-    strncpy(outgoing_packet.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
-    outgoing_packet.src_port = conn->src_port;
-    outgoing_packet.dst_port = conn->dst_port;
     outgoing_packet.length = size;
-    // Window?
-    // LAB3 doesn't need split code but later labs will.
+    // LAB4 doesn't need split code but later labs will.
     memcpy(outgoing_packet.buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
-    
-    pthread_mutex_lock(&(conn->current_seq_lock));
-    outgoing_packet.sequence = htonl(conn->current_seq);
     conn->current_seq += size;
+    
+    int transmitResult = rsp_transmit(&outgoing_packet);
+    ackq_enqueue_packet(conn->ackq, outgoing_packet, 1);
+    
     pthread_mutex_unlock(&(conn->current_seq_lock));
-    // No check of return value because LAB3 assumes no dropped packets
-    return rsp_transmit(&outgoing_packet);
+    return transmitResult;
 }
 
 int rsp_read(rsp_connection_t rsp, void *buff, int size)
@@ -447,24 +457,24 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
         return -2;
     }
     pthread_mutex_lock(&conn->connection_state_lock);
-    if (RSP_STATE_RST == conn->connection_state)
+    if (RSP_STATE_RST == conn->connection_state || RSP_STATE_CLOSED == conn->connection_state)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
     }
-    pthread_mutex_unlock(&conn->connection_state_lock);
     // Dequeue
     rsp_message_t * incoming;
     incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
+    pthread_mutex_unlock(&conn->connection_state_lock);
     if (nullptr == incoming)
     {
-        // Null without blocking means queue is empty
+        // Null with blocking call means queue is empty
         // which means closed connection. Return 0 to signal that.
         return 0;
     }
     else
     {
-        // LAB3 assumes the requested size is the size of the packet,
+        // LAB4 assumes the requested size is the size of the packet,
         // so we will not deal with if they only wanted to take half
         // of the payload from a packet and leave the rest for the
         // next read in this version of the lab.
