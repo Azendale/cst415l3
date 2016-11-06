@@ -205,6 +205,7 @@ static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst
     {
         g_OpenConnections.erase(it);
     }
+#warning if we have any cleanup of other threads by the number of connections left, need to signal here
     // This hand over hand locking may be unessesary, I can't come up with a scenario where the client can get access to it yet since we haven't returned from rsp_connect, and the receive thread case is handled.
     pthread_mutex_lock(&conn->connection_state_lock);
     pthread_mutex_unlock(&g_OpenConnectionsLock);
@@ -336,7 +337,6 @@ rsp_connection_t rsp_connect(const char *connection_name)
 int rsp_close(rsp_connection_t rsp)
 {
     RspData * conn = static_cast<RspData *>(rsp);
-    // State to close_wait (do we even need state for LAB3 or queue enough)
     
     // Send fin
     rsp_message_t request;
@@ -347,24 +347,43 @@ int rsp_close(rsp_connection_t rsp)
     request.flags.flags.fin = 1;
     // length is already 0 from memset
     request.window = htons(g_window);
-    // sequence doesn't make sense if there is no data, right?
     // ack sequence doesn't make sense, we aren't acking anything here
     // buffer has no data
     
     pthread_mutex_lock(&conn->connection_state_lock);
-    conn->connection_state = RSP_STATE_CLOSED;
-    pthread_mutex_unlock(&conn->connection_state_lock);
+    conn->connection_state = RSP_STATE_WECLOSED
+    request.sequence = conn->current_seq;
     
     bool closeRequestFail = false;
-    if (rsp_transmit(&request))
+    // (if sending the fin packet worked)
+    if (!rsp_transmit(&request))
     {
-        // Couldn't send fin packet -- but LAB3 doesn't worry about that
-        closeRequestFail = true;
+#warning don't use pointer to stack memory, as we are going to try to delete it
+#warning need to insert packet into ack queue with sent count and time
+#warning we should probably make a standard function to do that
+        Q_Enqueue(conn->ackq, &request);
+        
+        // Since we were able to send the fin, wait for it to be acked or timed out
+        pthread_cond_wait(&conn->connection_state);
+        while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
+        {
+            pthread_cond_wait(&conn->connection_state);
+        }
+    }
+    else
+    {
+        // Couldn't send. Something is quite broken getting to the RSP server
+        conn->connection_state = RSP_STATE_RST;
+        ackq_entry_t *elem = static_cast<ackq_entry_t *>(Q_Dequeue_Nowait(conn->ackq));
+        while (nullptr != elem)
+        {
+            delete elem;
+            elem = static_cast<ackq_entry_t *>Q_Dequeue_Nowait(conn->ackq));
+        }
     }
     
-    // pthread_join receiver thread, which will quit when it sees a fin
-    pthread_join(conn->rec_thread, nullptr);
-    // Queue should be now closed as recv thread closes it when it exits
+    // Queue should be now closed as recv thread closes when it gets the fin in the right order
+    // (or timeout times the connection out)
     // empty queue, checking each dequeue to see if it errored that the queue is empty
     rsp_message_t * elem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     while (nullptr != elem)
@@ -373,15 +392,16 @@ int rsp_close(rsp_connection_t rsp)
         elem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     }
     
-    delete conn;
-    
-    // Return
-    if (closeRequestFail)
+    if (RSP_STATE_RST == conn->connection_state)
     {
+        pthread_mutex_unlock(&conn->connection_state_lock);
+        delete conn;
         return -1;
     }
     else
     {
+        pthread_mutex_unlock(&conn->connection_state_lock);
+        delete conn;
         return 0;
     }
 }
