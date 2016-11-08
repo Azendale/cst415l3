@@ -101,37 +101,99 @@ void * rsp_reader(void * args)
     {
         pthread_cond_wait(&g_OpenConnectionsCond, &g_OpenConnectionsLock);
     }
-    while (!closed)
+    // Block for a read
+    memset(&incoming_packet, 0, sizeof(incoming_packet));
+    int recvCode = rsp_receive(&incoming_packet);
+    // decide what connection
+    // Phil says just kill the connection if the return value is not 0
+    if (recvCode != 0)
     {
-        memset(&incoming_packet, 0, sizeof(incoming_packet));
-        int recvCode = rsp_receive(&incoming_packet);
-        // Phil says just kill the connection if the return value is not 0
-        if (recvCode != 0)
+        std::cerr << "Got nonzero recv code: " <<  recvCode << std::endl;
+        if (2 == recvCode)
         {
-            std::cerr << "Got nonzero recv code: " <<  recvCode << std::endl;
-            if (2 == recvCode)
-            {
-                // Can match packet to a connection. Send RST for connection to make sure it's dead
-            }
-            continue;
+            // Can match packet to a connection. Send RST for connection to make sure it's dead
         }
+        continue;
+    }
+    
+    // Ensure null truncation
+    incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
+    std::string connName = std::string(incoming_packet.connection_name);
+    //pthread_mutex_lock(&g_connectionsLock);
+    // Find thread by name
+    auto it = g_connections.find(connName);
+    if (g_connections.cend() == it)
+    {
+        // Couldn't find matching connection
+        std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
+        continue
+    }
+    // Handle packet
+    pthread_mutex_lock(it->connection_state_lock);
+    // if packet not ack_highwater + 1
+    if (it->ack_highwater + 1 != ntohl(incoming_packet.sequence))
+    {
+        // do nothing/continue loop
+    }
+    // send ack
+    rsp_message_t ackPacket;
+    prepare_outgoing_packet(*it, ackPacket);
+    ackPacket.ack_sequence = incoming_packet.sequence;
+#warning need to actually send ack in recieve thread
+    // update highwater
+    it->ack_highwater = it->ack_highwater + 1;
+    // look at flags to decide action
+    if (incoming_packet.flags.flags.syn && incoming_packet.flags.flags.ack)
+    {
+        // SYNACK
         
-        // Ensure null truncation
-        incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
-        std::string connName = std::string(incoming_packet.connection_name);
-        //pthread_mutex_lock(&g_connectionsLock);
-        // Find thread by name
-        auto it = g_connections.find(connName);
-        if (g_connections.cend() != it)
+        it->connection_state = RSP_STATE_OPEN;
+        pthread_cond_broadcast(it->connection_state_cond);
+    }
+    if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
+    {
+        it->connection_state = RSP_STATE_RST;
+        pthread_cond_broadcast(&it->connection_state_cond);
+        
+        pthread_mutext_unlock(it->connection_state_lock);
+        // Goes last if we keep using the it iterator
+        // Remove from list of connections
+        g_OpenConnections.erase(it);
+    }
+#warning need to watch iterator validity and useage here
+    if (incoming_packet.flags.flags.fin)
+    {
+        if (RSP_STATE_WECLOSED = it->connection_state)
         {
-            // Handle packet
+            // Connection now full closed
+            it->connection_state = RSP_STATE_CLOSED;
+            pthread_cond_broadcast(&it->connection_state_cond);
+            pthread_mutext_unlock(it->connection_state_lock);
+            g_OpenConnections.erase(it);
         }
         else
         {
-            // Couldn't find matching connection
-            std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
+            // We didn't close our side yet
+            it->connection_state = RSP_STATE_THEYCLOSED;
+            // No more packets expected from them
+            Q_Close(it->recvq);
+            pthread_cond_broadcast(&it->connection_state_cond);
         }
-        //pthread_mutex_unlock(&g_connectionsLock);
+    }
+    if (0 < incoming_packet.size)
+    {
+        rsp_message_t * queuedpacket = new rsp_message_t;
+        memcpy(queuedpacket, incoming_packet, sizeof(rsp_message_t));
+        Q_Enqueue(it->recvq, queuedpacket);
+    }
+#warning need to figure out where exactly this unlock should go
+    // send pthread_cond_broadcast when connection closes etc
+    pthread_mutext_unlock(it->connection_state_lock);
+    
+    
+    while (!closed)
+    {
+       //pthread_mutex_unlock(&g_connectionsLock);
         
         
         if (incoming_packet.length > 0 && 0 == recvCode)
@@ -327,8 +389,6 @@ rsp_connection_t rsp_connect(const char *connection_name)
     response.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
     conn->connection_name = string(response.connection_name);
     
-    conn->our_first_sequence = 0;
-    conn->far_first_sequence = ntohl(response.sequence);
     conn->far_window = ntohs(response.window);
     
     return conn;
