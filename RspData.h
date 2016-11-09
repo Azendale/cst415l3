@@ -2,6 +2,7 @@
 // CST415 Lab3 RSP connection tracking data
 // Last modified: 2016-10-31
 #include <string>
+#include <list>
 #include "queue.h"
 
 using std::string;
@@ -36,8 +37,7 @@ public:
     //uint16_t far_window;
     
     uint64_t current_seq;
-    uint64_t ack_highwater;
-    
+    std::list<ackq_entry_t> ackq;
     string connection_name;
     queue_t recvq;
     queue_t ackq;

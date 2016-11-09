@@ -60,7 +60,15 @@ void sleepRspTimeout()
 
 uint64_t expireDelay(uint64_t pastTimestamp)
 {
-    return timestamp() - pastTimestamp + RSP_TIMEOUT;
+    uint64_t pastOffset = timestamp() - pastTimestamp;
+    if (pastOffset >= RSP_TIMEOUT)
+    {
+        return 0;
+    }
+    else
+    {
+        return  RSP_TIMEOUT - pastOffset;
+    }
 }
     
 void sleepMilliseconds(uint64_t msdelay)
@@ -71,23 +79,73 @@ void sleepMilliseconds(uint64_t msdelay)
     nanosleep(&delay, NULL);
 }
 
+
+static void getNextAckqPacketDelay(RspData * conn, uint64_t & expireDelay, uint32_t & sequenceNum)
+{
+    if (conn->ackq.empty())
+    {
+        expireDelay = RSP_TIMEOUT;
+        sequenceNum = -1;
+    }
+    else
+    {
+        ackq_entry_t & waitingPacket = conn->ackq.front();
+        expireDelay = expireDelay(waitingPacket.lastSent);
+        sequenceNum = ntohl(waitingPacket.packet.sequence);
+    }
+}
+
+static void sendPacket(rsp_connection_t * conn, rsp_message_t & packet, uint8_t timesSentSoFar)
+{
+    ackq_entry_t ackqEntry;
+    ackqEntry.packet = packet;
+    ackqEntry.lastSent = timestamp();
+    ackqEntry.timesSentSoFar = timesSentSoFar + 1;
+    conn->ackq.push_back(ackqEntry);
+    return rsp_transmit(&packet);
+}
+
 // One timer thread per connection
 void * rsp_timer(void * args)
 {
     RspData * conn = static_cast<RspData *>(args);
-    pthread_mutex_lock(&conn->connection_state_lock);
-    conn->ackq
-    while (RSP_STATE_CLOSED != conn->connection_state && /* ack queue not empty */)
+    uint64_t expireDelay;
+    uint32_t sequenceNum;
+    do
     {
+        pthread_mutex_lock(&conn->connection_state_lock);
+        getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
         pthread_mutex_unlock(&conn->connection_state_lock);
-        // Wait for timeout period to expire
-        sleepRspTimeout();
-       
-        // Check for timeouts and handle
-        // lock, check that we actually need to do something, do it, unlock
+        
+        sleepMilliseconds(expireDelay);
+        
+        pthread_mutex_lock(&conn->connection_state_lock);
+        // Is there a packet we were waiting for?
+        if (-1 < sequenceNum)
+        {
+            // If so, did it timeout while we were asleep? (if the queue is not empty and it's the same packet at the front)
+            if ( (!conn->ackq.empty()) && ntohl(conn->ackq.front().packet.sequence) == sequenceNum)
+            {
+                // packet was not acked, it is the first in the queue
+                ackq_entry_t lostPacket = conn->ackq.pop_front();
+                if (lostPacket.timesSentSoFar < 3)
+                {
+                    if (!sendPacket(conn, lostPacket.packet, lostPacket.timesSentSoFar))
+                    {
+                        conn->connection_state = RSP_STATE_RST;
+                        return nullptr;
+                    }
+                }
+                else
+                {
+                    conn->connection_state = RSP_STATE_RST;
+                    return nullptr;
+                }
+            }
+        }
+        pthread_mutex_unlock(&conn->connection_state_lock);
     }
-
-    return nullptr;
+        
 }
 
 void * rsp_reader(void * args)
