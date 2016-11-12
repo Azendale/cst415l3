@@ -205,17 +205,23 @@ void * rsp_reader(void * args)
             it->connection_state = RSP_STATE_OPEN;
             pthread_cond_broadcast(it->connection_state_cond);
         }
+       
+        // if packet not ack_highwater + 1
+        if (it->ack_highwater + 1 != ntohl(incoming_packet.sequence))
+        {
+            // do nothing/continue loop -- we're dropping this packet
+            pthread_mutext_unlock(it->connection_state_lock);
+            continue;
+        }
+        // update highwater
+        it->ack_highwater += 1;
         // Is packet FIN
-   #warning need to watch iterator validity and useage here
         else if (incoming_packet.flags.flags.fin)
         {
             if (RSP_STATE_WECLOSED = it->connection_state)
             {
                 // Connection now full closed
                 it->connection_state = RSP_STATE_CLOSED;
-                pthread_cond_broadcast(&it->connection_state_cond);
-                pthread_mutext_unlock(it->connection_state_lock);
-                g_OpenConnections.erase(it);
             }
             else
             {
@@ -223,65 +229,33 @@ void * rsp_reader(void * args)
                 it->connection_state = RSP_STATE_THEYCLOSED;
                 // No more packets expected from them
                 Q_Close(it->recvq);
-                pthread_cond_broadcast(&it->connection_state_cond);
+                // Do we have a premade function to send fin with?
+                rsp_message_t lastFin;
+                prepare_outgoing_packet(*it, lastFin);
+                lastFin.ack_sequence = htonl(it->ack_highwater);
+                rsp_transmit(&lastFin);
+                it->connection_state = RSP_STATE_CLOSED;
             }
+            pthread_cond_broadcast(&it->connection_state_cond);
+            pthread_mutext_unlock(it->connection_state_lock);
+            g_OpenConnections.erase(it);
+            continue;
         }
         
-        // if packet not ack_highwater + 1
-        if (it->ack_highwater + 1 != ntohl(incoming_packet.sequence))
-        {
-            // do nothing/continue loop -- we're dropping this packet
-        }
         // send ack
         rsp_message_t ackPacket;
         prepare_outgoing_packet(*it, ackPacket);
-        ackPacket.ack_sequence = incoming_packet.sequence;
+        ackPacket.ack_sequence = htonl(it->ack_highwater);
+        rsp_transmit(&ackPacket);
         
-
-    #warning need to actually send ack in recieve thread
-        // update highwater
-        it->ack_highwater = it->ack_highwater + 1;
-        // look at flags to decide action
+        // if we have any payload
         if (0 < incoming_packet.size)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(it->recvq, queuedpacket);
         }
-    #warning need to figure out where exactly this unlock should go
-        // send pthread_cond_broadcast when connection closes etc
         pthread_mutext_unlock(it->connection_state_lock);
-        
-        
-        while (!closed)
-        {
-        //pthread_mutex_unlock(&g_connectionsLock);
-            
-            
-            if (incoming_packet.length > 0 && 0 == recvCode)
-            {
-                rsp_message_t * queuedpacket = new rsp_message_t;
-                memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
-                Q_Enqueue(conn->recvq, queuedpacket);
-            }
-            //TODO: Send acks!
-            if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
-            {
-                closed = true;
-                Q_Close(conn->recvq);
-                pthread_mutex_lock(&conn->connection_state_lock);
-                conn->connection_state = RSP_STATE_RST;
-                pthread_mutex_unlock(&conn->connection_state_lock);
-            }
-            if (incoming_packet.flags.flags.fin)
-            {
-                closed = true;
-                Q_Close(conn->recvq);
-                pthread_mutex_lock(&conn->connection_state_lock);
-                conn->connection_state = RSP_STATE_CLOSED;
-                pthread_mutex_unlock(&conn->connection_state_lock);
-            }
-        }
     }
     
     return nullptr;
