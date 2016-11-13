@@ -80,13 +80,13 @@ static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay, int64_t & s
     if (conn->ackq.empty())
     {
         delay = RSP_TIMEOUT;
-        sequenceNum = -1;
+        sequenceTotal = -1;
     }
     else
     {
         ackq_entry_t & waitingPacket = conn->ackq.front();
         delay = expireDelay(waitingPacket.lastSent);
-        sequenceTotal = ntohl(waitingPacket.packet.sequence) + waitingPacket.length;
+        sequenceTotal = ntohl(waitingPacket.packet.sequence) + waitingPacket.packet.length;
     }
 }
 
@@ -165,7 +165,7 @@ void * rsp_timer(void * args)
             }
         }
         
-        getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
+        getNextAckqPacketDelay(conn, expireDelay, sequenceTotal);
     }
     pthread_mutex_unlock(&conn->connection_state_lock);
     
