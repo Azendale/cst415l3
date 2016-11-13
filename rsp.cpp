@@ -420,7 +420,6 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // Can't rsp_receive here, because that will be picked up by the RSP reader thread.
     // connection is not open until we get the response. So wait on the connection state condition
     // We already have the condition of this connection locked
-    pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
     while (RSP_STATE_OPEN != conn->connection_state || RSP_STATE_RST != conn->connection_state)
     {
         pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
@@ -482,7 +481,6 @@ int rsp_close(rsp_connection_t rsp)
         ackq_enqueue_packet(conn->ackq, request, 1);
         
         // Since we were able to send the fin, wait for it to be acked or timed out
-        pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
         while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
         {
             pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
