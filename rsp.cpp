@@ -140,10 +140,10 @@ void * rsp_timer(void * args)
 
     pthread_mutex_lock(&conn->connection_state_lock);
     getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
-    pthread_mutex_unlock(&conn->connection_state_lock);
     
     while (RSP_STATE_OPEN == conn->connection_state || RSP_STATE_WECLOSED == conn->connection_state)
     {
+        pthread_mutex_unlock(&conn->connection_state_lock);
         sleepMilliseconds(expireDelay);
         
         pthread_mutex_lock(&conn->connection_state_lock);
@@ -158,6 +158,7 @@ void * rsp_timer(void * args)
                 if (!retransmitHeadPacket(conn))
                 {
                     conn->connection_state = RSP_STATE_RST;
+                    pthread_cond_broadcast(&conn->connection_state_cond);
                     pthread_mutex_unlock(&conn->connection_state_lock);
                     return nullptr;
                 }
@@ -165,8 +166,8 @@ void * rsp_timer(void * args)
         }
         
         getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
-        pthread_mutex_unlock(&conn->connection_state_lock);
     }
+    pthread_mutex_unlock(&conn->connection_state_lock);
     
     return nullptr;
 }
@@ -473,6 +474,7 @@ int rsp_close(rsp_connection_t rsp)
     
     pthread_mutex_lock(&conn->connection_state_lock);
     conn->connection_state = RSP_STATE_WECLOSED;
+    pthread_cond_broadcast(&conn->connection_state_cond);
     
     // (if sending the fin packet worked)
     if (!rsp_transmit(&request))
@@ -490,6 +492,7 @@ int rsp_close(rsp_connection_t rsp)
     {
         // Couldn't send. Something is quite broken getting to the RSP server
         conn->connection_state = RSP_STATE_RST;
+        pthread_cond_broadcast(&conn->connection_state_cond);
     }
     
     pthread_join(conn->timer_thread, nullptr);
