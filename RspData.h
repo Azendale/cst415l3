@@ -4,6 +4,7 @@
 #include <string>
 #include <list>
 #include "queue.h"
+#include "rsp_if.h"
 
 using std::string;
 

@@ -309,7 +309,8 @@ void rsp_shutdown()
     
 }
 
-static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
+// Cleanup for the rsp_connect() function.
+static void rsp_connect_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
 {
     if (rst_far_end)
     {
@@ -324,16 +325,16 @@ static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst
     pthread_mutex_unlock(&conn->connection_state_lock);
     
     // Ensure the connection is removed from the global list
-    pthread_mutex_lock(&g_OpenConnectionsLock);
-    auto it = g_OpenConnections.find(conn->connection_name);
-    if (g_OpenConnections.end() != it)
+    pthread_mutex_lock(&g_connectionsLock);
+    auto it = g_connections.find(conn->connection_name);
+    if (g_connections.end() != it)
     {
-        g_OpenConnections.erase(it);
+        g_connections.erase(it);
     }
 #warning if we have any cleanup of other threads by the number of connections left, need to signal here
     // This hand over hand locking may be unessesary, I can't come up with a scenario where the client can get access to it yet since we haven't returned from rsp_connect, and the receive thread case is handled.
     pthread_mutex_lock(&conn->connection_state_lock);
-    pthread_mutex_unlock(&g_OpenConnectionsLock);
+    pthread_mutex_unlock(&g_connectionsLock);
     
     // Now that the receive thread can't access the connection, clean it up
     pthread_mutex_unlock(&conn->connection_state_lock);
@@ -385,32 +386,28 @@ rsp_connection_t rsp_connect(const char *connection_name)
 
     // Lock the g_OpenConnections lock
     // While holding this lock, we should atomically reserve a local connection name
-    pthread_mutex_lock(&g_OpenConnections);
+    pthread_mutex_lock(&g_connectionsLock);
     // Need to make sure that we do not have conflicting name
     if (g_connections.count(connection_name) != 0)
     {
         std::cerr << "Connection already exists locally with that name." << std::endl;
         pthread_mutex_unlock(&conn->connection_state_lock);
         delete conn;
-        pthread_mutex_unlock(&g_OpenConnections);
+        pthread_mutex_unlock(&g_connectionsLock);
         return nullptr;
     }
     // Insert new connection
-    g_OpenConnections[conn->connection_name] = conn;
+#warning bad idea
+    g_connections.insert(std::pair<std::string, RspData>(conn->connection_name, *conn));
     
-    // If we are the first connection, broadcast/signal
-    if (1 == g_OpenConnections.size())
-    {
-        pthread_cond_broadcast(&g_OpenConnectionsCond);
-    }
      // Connection inserted into list and we hold the lock for the connection, unlock the main lock
-    pthread_mutex_unlock(&g_OpenConnections);
+    pthread_mutex_unlock(&g_connectionsLock);
     
     // Send connection request
     if (0 != rsp_transmit(&request))
     {
         // Something wrong with the network. Give up on this connection (maybe we should give up on all connections even?)
-        rsp_conn_cleanup(request, conn, false);
+        rsp_connect_cleanup(request, conn, false);
         return nullptr;
     }
     
@@ -429,14 +426,14 @@ rsp_connection_t rsp_connect(const char *connection_name)
         // Spin off read thread
         if (pthread_create(&(conn->timer_thread), nullptr, rsp_timer, static_cast<void *>(conn)))
         {
-            rsp_conn_cleanup(request, conn, true);
+            rsp_connect_cleanup(request, conn, true);
             return nullptr;
         } 
     }
     // other option is RSP_STATE_RST
     else
     {
-        rsp_conn_cleanup(request, conn, false);
+        rsp_connect_cleanup(request, conn, false);
         return nullptr;
     }
     
@@ -534,7 +531,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
     }
-    prepare_outgoing_packet(conn, *outgoing_packet);
+    prepare_outgoing_packet(*conn, outgoing_packet);
     
     outgoing_packet.length = size;
     // LAB4 doesn't need split code but later labs will.

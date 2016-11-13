@@ -4,15 +4,10 @@
 #include "RspData.h"
 #include "rsp_if.h"
 
-RspData::RspData(): src_port(0), dst_port(0), far_first_sequence(0), our_first_sequence(0), far_window(0), current_seq(0), connection_name(""), connection_state(RSP_STATE_UNOPENED), ack_highwater(-1)
+RspData::RspData(): src_port(0), dst_port(0), current_seq(0), connection_name(""), connection_state(RSP_STATE_UNOPENED), ack_highwater(-1)
 {
     recvq = Q_Init();
     if (nullptr == recvq)
-    {
-        throw std::bad_alloc();
-    }
-    ackq = Q_Init();
-    if (nullptr == ackq)
     {
         throw std::bad_alloc();
     }
@@ -34,6 +29,6 @@ RspData::~RspData()
         Q_Destroy(recvq);
         recvq = nullptr;
     }
-    pthread_mutex_destroy(&current_seq_lock);
     pthread_mutex_destroy(&connection_state_lock);
+    pthread_cond_destroy(&connection_state_cond);
 }
