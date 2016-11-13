@@ -141,8 +141,8 @@ void * rsp_timer(void * args)
     pthread_mutex_lock(&conn->connection_state_lock);
     getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
     pthread_mutex_unlock(&conn->connection_state_lock);
-#warning need to come up with conditions to keep the timer thread alive    
-    while(false) // temp value, see note on line above
+    
+    while(RSP_STATE_OPEN == conn->connection_state || RSP_STATE_WECLOSED == conn->connection_state)
     {
         sleepMilliseconds(expireDelay);
         
@@ -396,7 +396,6 @@ rsp_connection_t rsp_connect(const char *connection_name)
         return nullptr;
     }
     // Insert new connection
-#warning bad idea
     g_connections.insert(std::pair<std::string, RspData *>(conn->connection_name, conn));
     
      // Connection inserted into list and we hold the lock for the connection, unlock the main lock
@@ -486,7 +485,8 @@ int rsp_close(rsp_connection_t rsp)
         // Couldn't send. Something is quite broken getting to the RSP server
         conn->connection_state = RSP_STATE_RST;
     }
-#warning need to kill the timer thread, then pthread_join in
+#warning need to signal the timer thread to stop, then pthread_join in
+    pthread_join(conn->timer_thread, nullptr);
     
     // Ensure both queues are empty
     // As long as we aren't handling pointers, it really should be this easy for the STL one
