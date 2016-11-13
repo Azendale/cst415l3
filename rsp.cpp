@@ -107,18 +107,37 @@ static void sendPacket(rsp_connection_t * conn, rsp_message_t & packet, uint8_t 
     return rsp_transmit(&packet);
 }
 
+// retransmit lost packet -- retransmits the packet on the top of the ackq
+// returns false if this is the third time or we weren't able to send
+// precondition: there must actually be a packet in the head of the ackq
+static bool retransmitHeadPacket(rsp_connection_t * conn)
+{
+    ackq_entry_t & lostPacket = conn->ackq.front();
+    if (lostPacket.timesSentSoFar >= 3)
+    {
+        lostPacket.timestamp = timestamp();
+        lostPacket.timesSentSoFar += 1;
+        return ! rsp_transmit(&lostPacket.packet);
+    }
+    else
+    {
+        return false;
+    }
+}
+
 // One timer thread per connection
 void * rsp_timer(void * args)
 {
     RspData * conn = static_cast<RspData *>(args);
     uint64_t expireDelay;
     uint32_t sequenceNum;
-    do
+
+    pthread_mutex_lock(&conn->connection_state_lock);
+    getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
+    pthread_mutex_unlock(&conn->connection_state_lock);
+#warning need to come up with conditions to keep the timer thread alive    
+    while()
     {
-        pthread_mutex_lock(&conn->connection_state_lock);
-        getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
-        pthread_mutex_unlock(&conn->connection_state_lock);
-        
         sleepMilliseconds(expireDelay);
         
         pthread_mutex_lock(&conn->connection_state_lock);
@@ -129,22 +148,16 @@ void * rsp_timer(void * args)
             if ( (!conn->ackq.empty()) && ntohl(conn->ackq.front().packet.sequence) == sequenceNum)
             {
                 // packet was not acked, it is the first in the queue
-                ackq_entry_t lostPacket = conn->ackq.pop_front();
-                if (lostPacket.timesSentSoFar < 3)
-                {
-                    if (!sendPacket(conn, lostPacket.packet, lostPacket.timesSentSoFar))
-                    {
-                        conn->connection_state = RSP_STATE_RST;
-                        return nullptr;
-                    }
-                }
-                else
+                // Returns false if this is more than the third time or we fail to transmit
+                if (!retransmitHeadPacket(conn))
                 {
                     conn->connection_state = RSP_STATE_RST;
                     return nullptr;
                 }
             }
         }
+        
+        getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
         pthread_mutex_unlock(&conn->connection_state_lock);
     }
         
