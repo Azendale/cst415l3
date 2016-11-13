@@ -23,13 +23,10 @@ typedef struct
 #define RSP_TIMEOUT 7000
 
 static int g_window  = 256;
-static pthread_t g_timerThread;
 static pthread_t g_readerThread;
 // Next 3 lines are so the timer and read functions can blocking wait on a condition variable instead of a read when we have no connections
 // Who can close a connection: Reader thread, or a close call from main thread
 static bool g_readerContinue = true;
-static pthread_mutex_t g_OpenConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_OpenConnectionsCond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t g_connectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static std::map<std::string, RspData> g_connections;
 
@@ -58,6 +55,7 @@ void sleepRspTimeout()
     nanosleep(&delay, NULL);
 }
 
+// Figure out how much more time we need to wait for RSP_TIMEOUT amount of time to have passed
 uint64_t expireDelay(uint64_t pastTimestamp)
 {
     uint64_t pastOffset = timestamp() - pastTimestamp;
@@ -70,7 +68,8 @@ uint64_t expireDelay(uint64_t pastTimestamp)
         return  RSP_TIMEOUT - pastOffset;
     }
 }
-    
+
+// Pause for a certain number of milliseconds.
 void sleepMilliseconds(uint64_t msdelay)
 {
     struct timespec delay;
@@ -79,7 +78,9 @@ void sleepMilliseconds(uint64_t msdelay)
     nanosleep(&delay, NULL);
 }
 
-
+// Figure out how long we need to wait for the packet in the front of the ackq to timeout, and 
+// store the amount of time to wait in expireDelay. Store the sequence number of the packet in 
+// sequenceNum
 static void getNextAckqPacketDelay(RspData * conn, uint64_t & expireDelay, uint32_t & sequenceNum)
 {
     if (conn->ackq.empty())
@@ -95,6 +96,7 @@ static void getNextAckqPacketDelay(RspData * conn, uint64_t & expireDelay, uint3
     }
 }
 
+// Send a packet that needs to be acked, automatically placing it in the ackq
 static void sendPacket(rsp_connection_t * conn, rsp_message_t & packet, uint8_t timesSentSoFar)
 {
     ackq_entry_t ackqEntry;
@@ -278,10 +280,16 @@ void rsp_init(int window_size)
     
  }
 
+// Precondition: You must have cleaned up all connections (closed them)
 void rsp_shutdown()
 {
     // Stop the reader thread
+    pthread_mutex_lock(&g_OpenConnectionsLock);
+    g_readerContinue = false;
+    pthread_mutex_unlock(&g_OpenConnectionsLock);
     // Free any resources or locks
+    
+    
 }
 
 static void rsp_conn_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
