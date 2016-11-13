@@ -396,7 +396,9 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // src_port, dst_port already 0 from memset
     // flags, 0 by default from memset
     request.flags.flags.syn = 1;
-    // length -- 0 from memset, no payload on this syn, so already correct
+    // length -- 0 from memset
+    request.length = 1;
+    request.buffer[0] = 0;
     // window
     request.window = htons(g_window);
     // sequence -- 0 from memset
