@@ -20,6 +20,12 @@ using std::string;
 // They closed the connection
 #define RSP_STATE_THEYCLOSED 5
 
+typedef struct
+{
+    rsp_message_t packet;
+    uint64_t lastSent;
+    uint8_t sendCount;
+} ackq_entry_t;
 
 class RspData
 {
@@ -39,7 +45,6 @@ public:
     uint64_t current_seq;
     std::list<ackq_entry_t> ackq;
     string connection_name;
-    queue_t recvq;
     queue_t ackq;
     pthread_mutex_t connection_state_lock;
     pthread_cond_t connection_state_cond;
