@@ -198,6 +198,7 @@ void * rsp_reader(void * args)
         }
         // Handle packet
         pthread_mutex_lock(&it->second->connection_state_lock);
+        
         // Is packet RST
         if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
         {
@@ -208,6 +209,8 @@ void * rsp_reader(void * args)
             // Goes last if we keep using the it iterator
             // Remove from list of connections
             g_connections.erase(it);
+            pthread_mutex_unlock(&g_connectionsLock);
+            continue;
         }
         // Is packet SYN + ACK
         else if (incoming_packet.flags.flags.syn && incoming_packet.flags.flags.ack)
@@ -231,6 +234,7 @@ void * rsp_reader(void * args)
         if (it->second->ack_highwater + 1 != ntohl(incoming_packet.sequence))
         {
             // do nothing/continue loop -- we're dropping this packet
+            pthread_mutex_unlock(&g_connectionsLock);
             pthread_mutex_unlock(&it->second->connection_state_lock);
             continue;
         }
@@ -259,8 +263,10 @@ void * rsp_reader(void * args)
             pthread_cond_broadcast(&it->second->connection_state_cond);
             pthread_mutex_unlock(&it->second->connection_state_lock);
             g_connections.erase(it);
+            pthread_mutex_unlock(&g_connectionsLock);
             continue;
         }
+        pthread_mutex_unlock(&g_connectionsLock);
         
         // send ack
         rsp_message_t ackPacket;
