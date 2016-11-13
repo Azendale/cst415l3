@@ -7,7 +7,7 @@
 # Date:   Sept 22, 2016
 # Modifications by Erik Andersen, <erik@eoni.com>, last changed 2016-10-31
 #
-COPTS = -g -O0 -Wall -pthread -Wwrite-strings
+COPTS = -g3 -O0 -Wall -pthread -Wwrite-strings
 CPPOPTS = $(COPTS) -std=c++11
 
 LOPTS = -pthread
