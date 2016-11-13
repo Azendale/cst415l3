@@ -436,7 +436,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // Can't rsp_receive here, because that will be picked up by the RSP reader thread.
     // connection is not open until we get the response. So wait on the connection state condition
     // We already have the condition of this connection locked
-    while (RSP_STATE_OPEN != conn->connection_state || RSP_STATE_RST != conn->connection_state)
+    while (RSP_STATE_UNOPENED == conn->connection_state)
     {
         pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
     }
