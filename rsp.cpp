@@ -90,8 +90,19 @@ static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay, int64_t & s
     }
 }
 
+static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
+{
+    memset(&packet, 0, sizeof(packet));
+    strncpy(packet.connection_name, conn.connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
+    packet.src_port = conn.src_port;
+    packet.dst_port = conn.dst_port;
+    packet.window = htons(g_window);
+    // Not totally sure this shouldn't be set by the calling function. We'll see
+    packet.sequence = htonl(conn.current_seq);
+}
+
 // Send a packet that needs to be acked, automatically placing it in the ackq
-static int sendPacket(rsp_connection_t * conn, rsp_message_t & packet, uint8_t timesSentSoFar)
+static int sendPacket(rsp_connection_t conn, rsp_message_t & packet, uint8_t timesSentSoFar)
 {
     ackq_entry_t ackqEntry;
     ackqEntry.packet = packet;
@@ -107,7 +118,7 @@ static int sendPacket(rsp_connection_t * conn, rsp_message_t & packet, uint8_t t
 static bool retransmitHeadPacket(rsp_connection_t conn)
 {
     ackq_entry_t & lostPacket = static_cast<RspData *>(conn)->ackq.front();
-    if (lostPacket.timesSentSoFar >= 3)
+    if (lostPacket.sendCount >= 3)
     {
         lostPacket.lastSent = timestamp();
         lostPacket.sendCount += 1;
@@ -131,7 +142,7 @@ void * rsp_timer(void * args)
     getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
     pthread_mutex_unlock(&conn->connection_state_lock);
 #warning need to come up with conditions to keep the timer thread alive    
-    while()
+    while(false) // temp value, see note on line above
     {
         sleepMilliseconds(expireDelay);
         
@@ -155,7 +166,8 @@ void * rsp_timer(void * args)
         getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
         pthread_mutex_unlock(&conn->connection_state_lock);
     }
-        
+    
+    return nullptr;
 }
 
 void * rsp_reader(void * args)
@@ -185,14 +197,14 @@ void * rsp_reader(void * args)
             continue;
         }
         // Handle packet
-        pthread_mutex_lock(it.second->connection_state_lock);
+        pthread_mutex_lock(&it->second.connection_state_lock);
         // Is packet RST
         if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
         {
-            it.second->connection_state = RSP_STATE_RST;
-            pthread_cond_broadcast(&it.second->connection_state_cond);
+            it->second.connection_state = RSP_STATE_RST;
+            pthread_cond_broadcast(&it->second.connection_state_cond);
             
-            pthread_mutext_unlock(it.second->connection_state_lock);
+            pthread_mutex_unlock(&it->second.connection_state_lock);
             // Goes last if we keep using the it iterator
             // Remove from list of connections
             g_connections.erase(it);
@@ -202,59 +214,59 @@ void * rsp_reader(void * args)
         {
             // SYNACK
             // Parse src and dest port, save them
-            conn->src_port = incoming_packet.src_port;
-            conn->dst_port = incoming_packet.dst_port;
+            it->second.src_port = incoming_packet.src_port;
+            it->second.dst_port = incoming_packet.dst_port;
             
             // Null terminate the name of the string, just in case it is not
-            response.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
-            conn->connection_name = string(response.connection_name);
+            incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
+            it->second.connection_name = string(incoming_packet.connection_name);
             
-            conn->far_window = ntohs(response.window);
+            //it->second.far_window = ntohs(incoming_packet.window);
             
-            it->connection_state = RSP_STATE_OPEN;
-            pthread_cond_broadcast(it->connection_state_cond);
+            it->second.connection_state = RSP_STATE_OPEN;
+            pthread_cond_broadcast(&it->second.connection_state_cond);
         }
        
         // if packet not ack_highwater + 1
-        if (it.second->ack_highwater + 1 != ntohl(incoming_packet.sequence))
+        if (it->second.ack_highwater + 1 != ntohl(incoming_packet.sequence))
         {
             // do nothing/continue loop -- we're dropping this packet
-            pthread_mutext_unlock(it.second->connection_state_lock);
+            pthread_mutex_unlock(&it->second.connection_state_lock);
             continue;
         }
         // update highwater
-        it.second->ack_highwater += 1;
+        it->second.ack_highwater += 1;
         // Is packet FIN
-        else if (incoming_packet.flags.flags.fin)
+        if (incoming_packet.flags.flags.fin)
         {
-            if (RSP_STATE_WECLOSED = it.second->connection_state)
+            if (RSP_STATE_WECLOSED == it->second.connection_state)
             {
                 // Connection now full closed
-                it.second->connection_state = RSP_STATE_CLOSED;
+                it->second.connection_state = RSP_STATE_CLOSED;
             }
             else
             {
                 // We didn't close our side yet
-                it.second->connection_state = RSP_STATE_THEYCLOSED;
+                it->second.connection_state = RSP_STATE_THEYCLOSED;
                 // No more packets expected from them
-                Q_Close(it.second->recvq);
+                Q_Close(it->second.recvq);
                 // Do we have a premade function to send fin with?
                 rsp_message_t lastFin;
-                prepare_outgoing_packet(*it.second, lastFin);
-                lastFin.ack_sequence = htonl(it.second->ack_highwater);
+                prepare_outgoing_packet(it->second, lastFin);
+                lastFin.ack_sequence = htonl(it->second.ack_highwater);
                 rsp_transmit(&lastFin);
-                it.second->connection_state = RSP_STATE_CLOSED;
+                it->second.connection_state = RSP_STATE_CLOSED;
             }
-            pthread_cond_broadcast(&it.second->connection_state_cond);
-            pthread_mutext_unlock(it.second->connection_state_lock);
+            pthread_cond_broadcast(&it->second.connection_state_cond);
+            pthread_mutex_unlock(&it->second.connection_state_lock);
             g_connections.erase(it);
             continue;
         }
         
         // send ack
         rsp_message_t ackPacket;
-        prepare_outgoing_packet(*it.second, ackPacket);
-        ackPacket.ack_sequence = htonl(it.second->ack_highwater);
+        prepare_outgoing_packet(it->second, ackPacket);
+        ackPacket.ack_sequence = htonl(it->second.ack_highwater);
         rsp_transmit(&ackPacket);
         
         // if we have any payload
@@ -262,9 +274,9 @@ void * rsp_reader(void * args)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
-            Q_Enqueue(it.second->recvq, queuedpacket);
+            Q_Enqueue(it->second.recvq, queuedpacket);
         }
-        pthread_mutex_unlock(it.second->connection_state_lock);
+        pthread_mutex_unlock(&it->second.connection_state_lock);
     }
     
     return nullptr;
@@ -384,7 +396,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
         return nullptr;
     }
     // Insert new connection
-    g_OpenConnections[conn.connection_name] = conn;
+    g_OpenConnections[conn->connection_name] = conn;
     
     // If we are the first connection, broadcast/signal
     if (1 == g_OpenConnections.size())
@@ -408,7 +420,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
     while (RSP_STATE_OPEN != conn->connection_state || RSP_STATE_RST != conn->connection_state)
     {
-        pthread_cond_wait(&conn->connection_state_cond);
+        pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
     }
     // we have the lock back
     if (RSP_STATE_OPEN == conn->connection_state)
@@ -442,18 +454,7 @@ static void ackq_enqueue_packet(std::list<ackq_entry_t> & ackq, rsp_message_t & 
     memcpy(&(queueItem->packet), &outgoing_packet, sizeof(rsp_message_t));
     queueItem->lastSent = timestamp();
     queueItem->sendCount = timesSentSoFar;
-    Q_Enqueue(ackq, queueItem);
-}
-
-static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
-{
-    memset(&request, 0, sizeof(request));
-    strncpy(request.connection_name, conn.connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
-    request.src_port = conn.src_port;
-    request.dst_port = conn.dst_port;
-    request.window = htons(g_window);
-    // Not totally sure this shouldn't be set by the calling function. We'll see
-    request.sequence = htonl(conn.current_seq);
+    ackq.push_back(*queueItem);
 }
 
 int rsp_close(rsp_connection_t rsp)
@@ -471,41 +472,38 @@ int rsp_close(rsp_connection_t rsp)
     pthread_mutex_lock(&conn->connection_state_lock);
     conn->connection_state = RSP_STATE_WECLOSED;
     
-    bool closeRequestFail = false;
     // (if sending the fin packet worked)
     if (!rsp_transmit(&request))
     {
         ackq_enqueue_packet(conn->ackq, request, 1);
         
         // Since we were able to send the fin, wait for it to be acked or timed out
-        pthread_cond_wait(&conn->connection_state);
+        pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
         while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
         {
-            pthread_cond_wait(&conn->connection_state);
+            pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
         }
     }
     else
     {
+#warning need to review and decide if this is the right way or takes enough steps to handle this failure to close
         // Couldn't send. Something is quite broken getting to the RSP server
         conn->connection_state = RSP_STATE_RST;
     }
     
     // Ensure both queues are empty
-    ackq_entry_t *elem = static_cast<ackq_entry_t *>(Q_Dequeue_Nowait(conn->ackq));
-    while (nullptr != elem)
-    {
-        delete elem;
-        elem = static_cast<ackq_entry_t *>(Q_Dequeue_Nowait(conn->ackq));
-    }
+    // As long as we aren't handling pointers, it really should be this easy for the STL one
+    conn->ackq.clear();
+    
     // Queue should be now closed as recv thread closes when it gets the fin in the right order
     // (or timeout times the connection out)
     // empty queue, checking each dequeue to see if it errored that the queue is empty
 #warning using wrong type of empty for ackq that is now a different type
-    elem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
-    while (nullptr != elem)
+    rsp_message_t * messageElem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
+    while (nullptr != messageElem)
     {
-        delete elem;
-        elem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
+        delete messageElem;
+        messageElem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     }
     
     if (RSP_STATE_RST == conn->connection_state)

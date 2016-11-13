@@ -45,9 +45,9 @@ public:
     uint64_t current_seq;
     std::list<ackq_entry_t> ackq;
     string connection_name;
-    queue_t ackq;
+    queue_t recvq;
     pthread_mutex_t connection_state_lock;
     pthread_cond_t connection_state_cond;
     int connection_state;
-    int last_recv_ack_num;
+    int64_t ack_highwater;
 };
