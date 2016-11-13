@@ -309,16 +309,17 @@ void rsp_shutdown()
 }
 
 // Cleanup for the rsp_connect() function.
-static void rsp_connect_cleanup(rsp_message_t & request, RspData * & conn, bool rst_far_end)
+static void rsp_connect_cleanup(RspData * & conn, bool rst_far_end)
 {
     if (rst_far_end)
     {
-            memset(&request, 0, sizeof(request));
-            request.src_port = htons(conn->src_port);
-            request.dst_port = htons(conn->dst_port);
-            strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
-            request.flags.flags.rst = 1;
-            rsp_transmit(&request);       
+        rsp_message_t request;
+        memset(&request, 0, sizeof(request));
+        request.src_port = htons(conn->src_port);
+        request.dst_port = htons(conn->dst_port);
+        strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
+        request.flags.flags.rst = 1;
+        rsp_transmit(&request);       
     }
     // Must release lock first to ensure we can avoid deadlock
     pthread_mutex_unlock(&conn->connection_state_lock);
@@ -330,7 +331,7 @@ static void rsp_connect_cleanup(rsp_message_t & request, RspData * & conn, bool 
     {
         g_connections.erase(it);
     }
-    // This hand over hand locking may be unessesary, I can't come up with a scenario where the client can get access to it yet since we haven't returned from rsp_connect, and the receive thread case is handled.
+    
     pthread_mutex_lock(&conn->connection_state_lock);
     pthread_mutex_unlock(&g_connectionsLock);
     
@@ -405,7 +406,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     if (0 != rsp_transmit(&request))
     {
         // Something wrong with the network. Give up on this connection (maybe we should give up on all connections even?)
-        rsp_connect_cleanup(request, conn, false);
+        rsp_connect_cleanup(conn, false);
         return nullptr;
     }
     
@@ -424,14 +425,14 @@ rsp_connection_t rsp_connect(const char *connection_name)
         // Spin off read thread
         if (pthread_create(&(conn->timer_thread), nullptr, rsp_timer, static_cast<void *>(conn)))
         {
-            rsp_connect_cleanup(request, conn, true);
+            rsp_connect_cleanup(conn, true);
             return nullptr;
         } 
     }
     // other option is RSP_STATE_RST
     else
     {
-        rsp_connect_cleanup(request, conn, false);
+        rsp_connect_cleanup(conn, false);
         return nullptr;
     }
     
