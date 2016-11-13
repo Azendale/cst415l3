@@ -73,9 +73,9 @@ void sleepMilliseconds(uint64_t msdelay)
 }
 
 // Figure out how long we need to wait for the packet in the front of the ackq to timeout, and 
-// store the amount of time to wait in delay. Store the sequence number of the packet in 
-// sequenceNum
-static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay, int64_t & sequenceNum)
+// store the amount of time to wait in delay. Store the end of the byte range the packet completes
+// in sequenceTotal
+static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay, int64_t & sequenceTotal)
 {
     if (conn->ackq.empty())
     {
@@ -86,7 +86,7 @@ static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay, int64_t & s
     {
         ackq_entry_t & waitingPacket = conn->ackq.front();
         delay = expireDelay(waitingPacket.lastSent);
-        sequenceNum = ntohl(waitingPacket.packet.sequence);
+        sequenceTotal = ntohl(waitingPacket.packet.sequence) + waitingPacket.length;
     }
 }
 
@@ -136,10 +136,10 @@ void * rsp_timer(void * args)
     RspData * conn = static_cast<RspData *>(args);
     uint64_t expireDelay;
     // 64 bits instead of 32 because I need another bit for signedness (negative means "null" sequence number)
-    int64_t sequenceNum;
+    int64_t sequenceTotal;
 
     pthread_mutex_lock(&conn->connection_state_lock);
-    getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
+    getNextAckqPacketDelay(conn, expireDelay, sequenceTotal);
     
     while (RSP_STATE_OPEN == conn->connection_state || RSP_STATE_WECLOSED == conn->connection_state)
     {
@@ -148,10 +148,10 @@ void * rsp_timer(void * args)
         
         pthread_mutex_lock(&conn->connection_state_lock);
         // Is there a packet we were waiting for?
-        if (0 <= sequenceNum)
+        if (0 <= sequenceTotal)
         {
             // If so, did it timeout while we were asleep? (if the queue is not empty and it's the same packet at the front)
-            if ( (!conn->ackq.empty()) && ntohl(conn->ackq.front().packet.sequence) == sequenceNum)
+            if ( (!conn->ackq.empty()) && ntohl(conn->ackq.front().packet.sequence) + conn->ackq.front().packet.length == sequenceTotal)
             {
                 // packet was not acked, it is the first in the queue
                 // Returns false if this is more than the third time or we fail to transmit
@@ -207,7 +207,6 @@ void * rsp_reader(void * args)
             pthread_cond_broadcast(&it->second->connection_state_cond);
             
             pthread_mutex_unlock(&it->second->connection_state_lock);
-            // Goes last if we keep using the it iterator
             // Remove from list of connections
             g_connections.erase(it);
             pthread_mutex_unlock(&g_connectionsLock);
@@ -226,21 +225,36 @@ void * rsp_reader(void * args)
             it->second->connection_name = string(incoming_packet.connection_name);
             
             //it->second->far_window = ntohs(incoming_packet.window);
+            it->second->ack_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
             
             it->second->connection_state = RSP_STATE_OPEN;
             pthread_cond_broadcast(&it->second->connection_state_cond);
+            pthread_mutex_unlock(&g_connectionsLock);
+            pthread_mutex_unlock(&it->second->connection_state_lock);
+            continue;
+        }
+        
+        // take stuff out of the timeout queue when it is acked
+        if (incoming_packet.flags.flags.ack)
+        {
+            uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
+            while (! it->second->ackq.empty() && ntohl(it->second->ackq.front().packet.sequence) + it->second->ackq.front().packet.length <= receivedThru)
+            {
+                it->second->ackq.pop_front();
+            }
         }
        
-        // if packet not ack_highwater + 1
-        if (it->second->ack_highwater + 1 != ntohl(incoming_packet.sequence))
+        // if packet's byte range does not start at ack_highwater, filter it out (drop)
+        if (it->second->ack_highwater != ntohl(incoming_packet.sequence))
         {
             // do nothing/continue loop -- we're dropping this packet
             pthread_mutex_unlock(&g_connectionsLock);
             pthread_mutex_unlock(&it->second->connection_state_lock);
             continue;
         }
-        // update highwater
-        it->second->ack_highwater += 1;
+        
+        it->second->ack_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
+        
         // Is packet FIN
         if (incoming_packet.flags.flags.fin)
         {
@@ -257,6 +271,7 @@ void * rsp_reader(void * args)
                 // Do we have a premade function to send fin with?
                 rsp_message_t lastFin;
                 prepare_outgoing_packet(*it->second, lastFin);
+                lastFin.flags.flags.fin = 1;
                 lastFin.ack_sequence = htonl(it->second->ack_highwater);
                 rsp_transmit(&lastFin);
                 it->second->connection_state = RSP_STATE_CLOSED;
@@ -269,10 +284,11 @@ void * rsp_reader(void * args)
         }
         pthread_mutex_unlock(&g_connectionsLock);
         
-        // send ack
         rsp_message_t ackPacket;
-        prepare_outgoing_packet(*it->second, ackPacket);
         ackPacket.ack_sequence = htonl(it->second->ack_highwater);
+        ackPacket.flags.flags.ack = 1;
+        // send ack
+        prepare_outgoing_packet(*it->second, ackPacket);
         rsp_transmit(&ackPacket);
         
         // if we have any payload
