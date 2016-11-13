@@ -22,7 +22,7 @@ static pthread_t g_readerThread;
 // Who can close a connection: Reader thread, or a close call from main thread
 static bool g_readerContinue = true;
 static pthread_mutex_t g_connectionsLock = PTHREAD_MUTEX_INITIALIZER;
-static std::map<std::string, RspData> g_connections;
+static std::map<std::string, RspData *> g_connections;
 
 using std::string;
 
@@ -196,14 +196,14 @@ void * rsp_reader(void * args)
             continue;
         }
         // Handle packet
-        pthread_mutex_lock(&it->second.connection_state_lock);
+        pthread_mutex_lock(&it->second->connection_state_lock);
         // Is packet RST
         if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
         {
-            it->second.connection_state = RSP_STATE_RST;
-            pthread_cond_broadcast(&it->second.connection_state_cond);
+            it->second->connection_state = RSP_STATE_RST;
+            pthread_cond_broadcast(&it->second->connection_state_cond);
             
-            pthread_mutex_unlock(&it->second.connection_state_lock);
+            pthread_mutex_unlock(&it->second->connection_state_lock);
             // Goes last if we keep using the it iterator
             // Remove from list of connections
             g_connections.erase(it);
@@ -213,59 +213,59 @@ void * rsp_reader(void * args)
         {
             // SYNACK
             // Parse src and dest port, save them
-            it->second.src_port = incoming_packet.src_port;
-            it->second.dst_port = incoming_packet.dst_port;
+            it->second->src_port = incoming_packet.src_port;
+            it->second->dst_port = incoming_packet.dst_port;
             
             // Null terminate the name of the string, just in case it is not
             incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
-            it->second.connection_name = string(incoming_packet.connection_name);
+            it->second->connection_name = string(incoming_packet.connection_name);
             
-            //it->second.far_window = ntohs(incoming_packet.window);
+            //it->second->far_window = ntohs(incoming_packet.window);
             
-            it->second.connection_state = RSP_STATE_OPEN;
-            pthread_cond_broadcast(&it->second.connection_state_cond);
+            it->second->connection_state = RSP_STATE_OPEN;
+            pthread_cond_broadcast(&it->second->connection_state_cond);
         }
        
         // if packet not ack_highwater + 1
-        if (it->second.ack_highwater + 1 != ntohl(incoming_packet.sequence))
+        if (it->second->ack_highwater + 1 != ntohl(incoming_packet.sequence))
         {
             // do nothing/continue loop -- we're dropping this packet
-            pthread_mutex_unlock(&it->second.connection_state_lock);
+            pthread_mutex_unlock(&it->second->connection_state_lock);
             continue;
         }
         // update highwater
-        it->second.ack_highwater += 1;
+        it->second->ack_highwater += 1;
         // Is packet FIN
         if (incoming_packet.flags.flags.fin)
         {
-            if (RSP_STATE_WECLOSED == it->second.connection_state)
+            if (RSP_STATE_WECLOSED == it->second->connection_state)
             {
                 // Connection now full closed
-                it->second.connection_state = RSP_STATE_CLOSED;
+                it->second->connection_state = RSP_STATE_CLOSED;
             }
             else
             {
                 // We didn't close our side yet
-                it->second.connection_state = RSP_STATE_THEYCLOSED;
+                it->second->connection_state = RSP_STATE_THEYCLOSED;
                 // No more packets expected from them
-                Q_Close(it->second.recvq);
+                Q_Close(it->second->recvq);
                 // Do we have a premade function to send fin with?
                 rsp_message_t lastFin;
-                prepare_outgoing_packet(it->second, lastFin);
-                lastFin.ack_sequence = htonl(it->second.ack_highwater);
+                prepare_outgoing_packet(*it->second, lastFin);
+                lastFin.ack_sequence = htonl(it->second->ack_highwater);
                 rsp_transmit(&lastFin);
-                it->second.connection_state = RSP_STATE_CLOSED;
+                it->second->connection_state = RSP_STATE_CLOSED;
             }
-            pthread_cond_broadcast(&it->second.connection_state_cond);
-            pthread_mutex_unlock(&it->second.connection_state_lock);
+            pthread_cond_broadcast(&it->second->connection_state_cond);
+            pthread_mutex_unlock(&it->second->connection_state_lock);
             g_connections.erase(it);
             continue;
         }
         
         // send ack
         rsp_message_t ackPacket;
-        prepare_outgoing_packet(it->second, ackPacket);
-        ackPacket.ack_sequence = htonl(it->second.ack_highwater);
+        prepare_outgoing_packet(*it->second, ackPacket);
+        ackPacket.ack_sequence = htonl(it->second->ack_highwater);
         rsp_transmit(&ackPacket);
         
         // if we have any payload
@@ -273,9 +273,9 @@ void * rsp_reader(void * args)
         {
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
-            Q_Enqueue(it->second.recvq, queuedpacket);
+            Q_Enqueue(it->second->recvq, queuedpacket);
         }
-        pthread_mutex_unlock(&it->second.connection_state_lock);
+        pthread_mutex_unlock(&it->second->connection_state_lock);
     }
     
     return nullptr;
@@ -397,7 +397,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     }
     // Insert new connection
 #warning bad idea
-    g_connections.insert(std::pair<std::string, RspData>(conn->connection_name, *conn));
+    g_connections.insert(std::pair<std::string, RspData *>(conn->connection_name, conn));
     
      // Connection inserted into list and we hold the lock for the connection, unlock the main lock
     pthread_mutex_unlock(&g_connectionsLock);
@@ -486,6 +486,7 @@ int rsp_close(rsp_connection_t rsp)
         // Couldn't send. Something is quite broken getting to the RSP server
         conn->connection_state = RSP_STATE_RST;
     }
+#warning need to kill the timer thread, then pthread_join in
     
     // Ensure both queues are empty
     // As long as we aren't handling pointers, it really should be this easy for the STL one
