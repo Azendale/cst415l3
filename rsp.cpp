@@ -142,7 +142,7 @@ void * rsp_timer(void * args)
     getNextAckqPacketDelay(conn, expireDelay, sequenceNum);
     pthread_mutex_unlock(&conn->connection_state_lock);
     
-    while(RSP_STATE_OPEN == conn->connection_state || RSP_STATE_WECLOSED == conn->connection_state)
+    while (RSP_STATE_OPEN == conn->connection_state || RSP_STATE_WECLOSED == conn->connection_state)
     {
         sleepMilliseconds(expireDelay);
         
@@ -158,6 +158,7 @@ void * rsp_timer(void * args)
                 if (!retransmitHeadPacket(conn))
                 {
                     conn->connection_state = RSP_STATE_RST;
+                    pthread_mutex_unlock(&conn->connection_state_lock);
                     return nullptr;
                 }
             }
@@ -238,6 +239,8 @@ void * rsp_reader(void * args)
         // Is packet FIN
         if (incoming_packet.flags.flags.fin)
         {
+            // No more packets expected from them
+            Q_Close(it->second->recvq);
             if (RSP_STATE_WECLOSED == it->second->connection_state)
             {
                 // Connection now full closed
@@ -245,10 +248,7 @@ void * rsp_reader(void * args)
             }
             else
             {
-                // We didn't close our side yet
                 it->second->connection_state = RSP_STATE_THEYCLOSED;
-                // No more packets expected from them
-                Q_Close(it->second->recvq);
                 // Do we have a premade function to send fin with?
                 rsp_message_t lastFin;
                 prepare_outgoing_packet(*it->second, lastFin);
@@ -289,11 +289,7 @@ void rsp_init(int window_size)
     g_readerContinue = true;
     
     // Spin off read thread
-    if (pthread_create(&(g_readerThread), nullptr, rsp_reader, nullptr))
-    {
-        // TODO: how should we fail here?
-    } 
-    
+    pthread_create(&(g_readerThread), nullptr, rsp_reader, nullptr);
  }
 
 // Precondition: You must have cleaned up all connections (closed them)
@@ -305,7 +301,12 @@ void rsp_shutdown()
     pthread_mutex_unlock(&g_connectionsLock);
     // Free any resources or locks
     
+    // Break reader thread out of it's wait by getting the server to echo anything back at us
+    rsp_message_t reflection;
+    memset(&reflection, 0, sizeof(reflection));
+    rsp_transmit(&reflection);
     
+    pthread_join(g_readerThread, nullptr);
 }
 
 // Cleanup for the rsp_connect() function.
@@ -481,11 +482,10 @@ int rsp_close(rsp_connection_t rsp)
     }
     else
     {
-#warning need to review and decide if this is the right way or takes enough steps to handle this failure to close
         // Couldn't send. Something is quite broken getting to the RSP server
         conn->connection_state = RSP_STATE_RST;
     }
-#warning need to signal the timer thread to stop, then pthread_join in
+    
     pthread_join(conn->timer_thread, nullptr);
     
     // Ensure both queues are empty
@@ -525,7 +525,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     RspData * conn = static_cast<RspData *>(rsp);
     rsp_message_t outgoing_packet;
     pthread_mutex_lock(&conn->connection_state_lock);
-    if (RSP_STATE_RST == conn->connection_state)
+    if (RSP_STATE_OPEN != conn->connection_state)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
@@ -552,7 +552,7 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
         return -2;
     }
     pthread_mutex_lock(&conn->connection_state_lock);
-    if (RSP_STATE_RST == conn->connection_state || RSP_STATE_CLOSED == conn->connection_state)
+    if (RSP_STATE_OPEN != conn->connection_state)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
