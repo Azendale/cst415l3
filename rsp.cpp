@@ -179,9 +179,8 @@ void * rsp_reader(void * args)
     {
         // Block for a read
         memset(&incoming_packet, 0, sizeof(incoming_packet));
-        int recvCode = rsp_receive(&incoming_packet);
+        rsp_receive(&incoming_packet);
         // decide what connection
-       
         // Ensure null truncation
         incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
         std::string connName = std::string(incoming_packet.connection_name);
@@ -331,7 +330,6 @@ static void rsp_connect_cleanup(rsp_message_t & request, RspData * & conn, bool 
     {
         g_connections.erase(it);
     }
-#warning if we have any cleanup of other threads by the number of connections left, need to signal here
     // This hand over hand locking may be unessesary, I can't come up with a scenario where the client can get access to it yet since we haven't returned from rsp_connect, and the receive thread case is handled.
     pthread_mutex_lock(&conn->connection_state_lock);
     pthread_mutex_unlock(&g_connectionsLock);
@@ -495,7 +493,6 @@ int rsp_close(rsp_connection_t rsp)
     // Queue should be now closed as recv thread closes when it gets the fin in the right order
     // (or timeout times the connection out)
     // empty queue, checking each dequeue to see if it errored that the queue is empty
-#warning using wrong type of empty for ackq that is now a different type
     rsp_message_t * messageElem = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn->recvq));
     while (nullptr != messageElem)
     {
