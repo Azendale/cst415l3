@@ -582,8 +582,9 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
     }
     // Dequeue
     rsp_message_t * incoming;
-    incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
+#warning need to thing through lock order of the lock in phil's queue and the locks I use -- is the order of the next two lines dangerous?
     pthread_mutex_unlock(&conn->connection_state_lock);
+    incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
     if (nullptr == incoming)
     {
         // Null with blocking call means queue is empty
