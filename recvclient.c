@@ -16,7 +16,7 @@ int main(int argc, char **argv)
 
     rsp_connection_t rsp;
 
-    rsp = rsp_connect("pwh_xfer_client");
+    rsp = rsp_connect("eba1_xfer_client");
     if (rsp != NULL) 
     {
         printf("Connection established\n");
