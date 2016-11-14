@@ -18,8 +18,6 @@
 
 static int g_window  = 256;
 static pthread_t g_readerThread;
-// Next 3 lines are so the timer and read functions can blocking wait on a condition variable instead of a read when we have no connections
-// Who can close a connection: Reader thread, or a close call from main thread
 static bool g_readerContinue = true;
 static pthread_mutex_t g_connectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static std::map<std::string, RspData *> g_connections;
@@ -151,6 +149,7 @@ void * rsp_timer(void * args)
         if (0 <= sequenceTotal)
         {
             // If so, did it timeout while we were asleep? (if the queue is not empty and it's the same packet at the front)
+#warning how does this handle 0 length packets (fins)
             if ( (!conn->ackq.empty()) && ntohl(conn->ackq.front().packet.sequence) + conn->ackq.front().packet.length == sequenceTotal)
             {
                 // packet was not acked, it is the first in the queue
