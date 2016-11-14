@@ -41,6 +41,7 @@ int main(int argc, char **argv)
         rsp_transmit(&rstPacket);
 
     }
+    rsp_shutdown();
 
     return 0;
 }

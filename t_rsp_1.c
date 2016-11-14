@@ -31,6 +31,7 @@ int main(int argc, char **argv)
 
         printf("rsp_close value after closing with remaining data in buffer: %d\n", rsp_close(rsp));
     }
+    rsp_shutdown();
 
     return 0;
 }

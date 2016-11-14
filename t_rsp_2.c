@@ -40,6 +40,7 @@ int main(int argc, char **argv)
     {
         printf("Got null rsp object.\n");
     }
+    rsp_shutdown();
 
     return 0;
 }

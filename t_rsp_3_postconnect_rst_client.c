@@ -41,6 +41,7 @@ int main(int argc, char **argv)
         printf("Value of rsp_read after trying to read from RST'd connection: %d\n", rsp_read(rsp, buff, sizeof(buff)));
         rsp_close(rsp);
     }
+    rsp_shutdown();
 
     return 0;
 }

@@ -30,6 +30,7 @@ int main(int argc, char **argv)
         rsp_close(rsp);
         printf("received %d bytes\n", total_bytes);
     }
+    rsp_shutdown();
 
     return 0;
 }

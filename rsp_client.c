@@ -29,6 +29,7 @@ int main(int argc, char **argv)
 
         rsp_close(rsp);
     }
+    rsp_shutdown();
 
     return 0;
 }
