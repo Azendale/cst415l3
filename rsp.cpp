@@ -70,6 +70,26 @@ void sleepMilliseconds(uint64_t msdelay)
     nanosleep(&delay, NULL);
 }
 
+static void printPacketStderr(rsp_message_t & incoming_packet)
+{
+    std::cerr << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << incoming_packet.flags.flags.syn << ", ack = " << incoming_packet.flags.flags.ack << ", fin = "<< incoming_packet.flags.flags.fin << ", rst = "<< incoming_packet.flags.flags.rst << ", err = " << incoming_packet.flags.flags.err << ", nod = " << incoming_packet.flags.flags.nod << ", nro = "<< incoming_packet.flags.flags.nro << ", reserved = "<< incoming_packet.flags.flags.reserved << "}}, length = "<< incoming_packet.length << ", window = " << incoming_packet.window << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
+}
+
+static int rsp_transmit_wrap(rsp_message_t * packet)
+{
+    // Comment if you don't want a packet capture on stderr
+    printPacketStderr(*packet);
+    return rsp_transmit(packet);
+}
+
+static int rsp_receive_wrap(rsp_message_t * packet)
+{
+    int result = rsp_receive(packet);
+    // Comment if you don't want a packet capture on stderr
+    printPacketStderr(*packet);
+    return result;
+}
+
 // Figure out how long we need to wait for the packet in the front of the ackq to timeout, and 
 // store the amount of time to wait in delay. Store the end of the byte range the packet completes
 // in sequenceTotal
@@ -107,7 +127,7 @@ static int sendPacket(rsp_connection_t conn, rsp_message_t & packet, uint8_t tim
     ackqEntry.lastSent = timestamp();
     ackqEntry.sendCount = timesSentSoFar + 1;
     static_cast<RspData *>(conn)->ackq.push_back(ackqEntry);
-    return rsp_transmit(&packet);
+    return rsp_transmit_wrap(&packet);
 }
 
 // retransmit lost packet -- retransmits the packet on the top of the ackq
@@ -120,7 +140,7 @@ static bool retransmitHeadPacket(rsp_connection_t conn)
     {
         lostPacket.lastSent = timestamp();
         lostPacket.sendCount += 1;
-        return ! rsp_transmit(&lostPacket.packet);
+        return ! rsp_transmit_wrap(&lostPacket.packet);
     }
     else
     {
@@ -179,7 +199,7 @@ void * rsp_reader(void * args)
     {
         // Block for a read
         memset(&incoming_packet, 0, sizeof(incoming_packet));
-        rsp_receive(&incoming_packet);
+        rsp_receive_wrap(&incoming_packet);
         // decide what connection
         // Ensure null truncation
         incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
@@ -192,6 +212,7 @@ void * rsp_reader(void * args)
         {
             // Couldn't find matching connection
             std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
+        
             pthread_mutex_unlock(&g_connectionsLock);
             continue;
         }
@@ -273,7 +294,7 @@ void * rsp_reader(void * args)
                 lastFin.flags.flags.fin = 1;
                 lastFin.flags.flags.ack = 1;
                 lastFin.ack_sequence = htonl(it->second->recv_highwater);
-                rsp_transmit(&lastFin);
+                rsp_transmit_wrap(&lastFin);
                 it->second->connection_state = RSP_STATE_CLOSED;
             }
             pthread_cond_broadcast(&it->second->connection_state_cond);
@@ -289,7 +310,7 @@ void * rsp_reader(void * args)
         ackPacket.ack_sequence = htonl(it->second->recv_highwater);
         ackPacket.flags.flags.ack = 1;
         // send ack
-        rsp_transmit(&ackPacket);
+        rsp_transmit_wrap(&ackPacket);
         
         // if we have any payload
         if (0 < incoming_packet.length)
@@ -327,7 +348,7 @@ void rsp_shutdown()
     // Break reader thread out of it's wait by getting the server to echo anything back at us
     rsp_message_t reflection;
     memset(&reflection, 0, sizeof(reflection));
-    rsp_transmit(&reflection);
+    rsp_transmit_wrap(&reflection);
     
     pthread_join(g_readerThread, nullptr);
 }
@@ -343,7 +364,7 @@ static void rsp_connect_cleanup(RspData * & conn, bool rst_far_end)
         request.dst_port = htons(conn->dst_port);
         strncpy(request.connection_name, conn->connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
         request.flags.flags.rst = 1;
-        rsp_transmit(&request);       
+        rsp_transmit_wrap(&request);
     }
     // Must release lock first to ensure we can avoid deadlock
     pthread_mutex_unlock(&conn->connection_state_lock);
@@ -428,7 +449,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     pthread_mutex_unlock(&g_connectionsLock);
     
     // Send connection request
-    if (0 != rsp_transmit(&request))
+    if (0 != rsp_transmit_wrap(&request))
     {
         // Something wrong with the network. Give up on this connection (maybe we should give up on all connections even?)
         rsp_connect_cleanup(conn, false);
@@ -494,7 +515,7 @@ int rsp_close(rsp_connection_t rsp)
     pthread_cond_broadcast(&conn->connection_state_cond);
     
     // (if sending the fin packet worked)
-    if (!rsp_transmit(&request))
+    if (!rsp_transmit_wrap(&request))
     {
         ackq_enqueue_packet(conn->ackq, request, 1);
         
@@ -571,7 +592,7 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     conn->current_seq += size;
     
     ackq_enqueue_packet(conn->ackq, outgoing_packet, 1);
-    int transmitResult = rsp_transmit(&outgoing_packet);
+    int transmitResult = rsp_transmit_wrap(&outgoing_packet);
     
     pthread_mutex_unlock(&(conn->connection_state_lock));
     return transmitResult;
