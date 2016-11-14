@@ -483,13 +483,13 @@ int rsp_close(rsp_connection_t rsp)
     
     // Send fin
     rsp_message_t request;
+    pthread_mutex_lock(&conn->connection_state_lock);
     prepare_outgoing_packet(*conn, request);
     request.flags.flags.fin = 1;
     // length is already 0 from memset in the prepare outgoing packet function
     // ack sequence doesn't make sense, we aren't acking anything here
     // buffer has no data
     
-    pthread_mutex_lock(&conn->connection_state_lock);
     conn->connection_state = RSP_STATE_WECLOSED;
     pthread_cond_broadcast(&conn->connection_state_cond);
     
@@ -570,8 +570,8 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     memcpy(outgoing_packet.buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
     conn->current_seq += size;
     
-    int transmitResult = rsp_transmit(&outgoing_packet);
     ackq_enqueue_packet(conn->ackq, outgoing_packet, 1);
+    int transmitResult = rsp_transmit(&outgoing_packet);
     
     pthread_mutex_unlock(&(conn->connection_state_lock));
     return transmitResult;
