@@ -70,15 +70,15 @@ void sleepMilliseconds(uint64_t msdelay)
     nanosleep(&delay, NULL);
 }
 
-static void printPacketStderr(rsp_message_t & incoming_packet)
+static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet)
 {
-    std::cerr << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << incoming_packet.flags.flags.syn << ", ack = " << incoming_packet.flags.flags.ack << ", fin = "<< incoming_packet.flags.flags.fin << ", rst = "<< incoming_packet.flags.flags.rst << ", err = " << incoming_packet.flags.flags.err << ", nod = " << incoming_packet.flags.flags.nod << ", nro = "<< incoming_packet.flags.flags.nro << ", reserved = "<< incoming_packet.flags.flags.reserved << "}}, length = "<< incoming_packet.length << ", window = " << incoming_packet.window << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
+    std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << incoming_packet.flags.flags.syn << ", ack = " << incoming_packet.flags.flags.ack << ", fin = "<< incoming_packet.flags.flags.fin << ", rst = "<< incoming_packet.flags.flags.rst << ", err = " << incoming_packet.flags.flags.err << ", nod = " << incoming_packet.flags.flags.nod << ", nro = "<< incoming_packet.flags.flags.nro << ", reserved = "<< incoming_packet.flags.flags.reserved << "}}, length = "<< incoming_packet.length << ", window = " << incoming_packet.window << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
 }
 
 static int rsp_transmit_wrap(rsp_message_t * packet)
 {
     // Comment if you don't want a packet capture on stderr
-    printPacketStderr(*packet);
+    printPacketStderr("Transmit: ", *packet);
     return rsp_transmit(packet);
 }
 
@@ -86,7 +86,7 @@ static int rsp_receive_wrap(rsp_message_t * packet)
 {
     int result = rsp_receive(packet);
     // Comment if you don't want a packet capture on stderr
-    printPacketStderr(*packet);
+    printPacketStderr("Recieve: ", *packet);
     return result;
 }
 
