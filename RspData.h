@@ -50,5 +50,9 @@ public:
     pthread_mutex_t connection_state_lock;
     pthread_cond_t connection_state_cond;
     int connection_state;
-    int64_t ack_highwater;
+    // Farthest we have received into the stream
+    int64_t recv_highwater;
+    // Farthest the remote side has reported they got
+    int64_t remoteConfirm_highwater;
+    
 };

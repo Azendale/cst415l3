@@ -223,7 +223,7 @@ void * rsp_reader(void * args)
             it->second->connection_name = string(incoming_packet.connection_name);
             
             //it->second->far_window = ntohs(incoming_packet.window);
-            it->second->ack_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
+            it->second->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
             
             it->second->connection_state = RSP_STATE_OPEN;
             pthread_cond_broadcast(&it->second->connection_state_cond);
@@ -240,10 +240,11 @@ void * rsp_reader(void * args)
             {
                 it->second->ackq.pop_front();
             }
+            it->second->remoteConfirm_highwater = receivedThru;
         }
        
-        // if packet's byte range does not start at ack_highwater, filter it out (drop)
-        if (it->second->ack_highwater != ntohl(incoming_packet.sequence))
+        // if packet's byte range does not start at the end of the last byte we have, drop it
+        if (ntohl(incoming_packet.sequence) != it->second->recv_highwater)
         {
             // do nothing/continue loop -- we're dropping this packet
             pthread_mutex_unlock(&g_connectionsLock);
@@ -251,7 +252,7 @@ void * rsp_reader(void * args)
             continue;
         }
         
-        it->second->ack_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
+        it->second->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
         
         // Is packet FIN
         if (incoming_packet.flags.flags.fin)
@@ -270,7 +271,8 @@ void * rsp_reader(void * args)
                 rsp_message_t lastFin;
                 prepare_outgoing_packet(*it->second, lastFin);
                 lastFin.flags.flags.fin = 1;
-                lastFin.ack_sequence = htonl(it->second->ack_highwater);
+                lastFin.flags.flags.ack = 1;
+                lastFin.ack_sequence = htonl(it->second->recv_highwater);
                 rsp_transmit(&lastFin);
                 it->second->connection_state = RSP_STATE_CLOSED;
             }
@@ -284,7 +286,7 @@ void * rsp_reader(void * args)
         
         rsp_message_t ackPacket;
         prepare_outgoing_packet(*it->second, ackPacket);
-        ackPacket.ack_sequence = htonl(it->second->ack_highwater);
+        ackPacket.ack_sequence = htonl(it->second->recv_highwater);
         ackPacket.flags.flags.ack = 1;
         // send ack
         rsp_transmit(&ackPacket);
