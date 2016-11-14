@@ -149,8 +149,7 @@ void * rsp_timer(void * args)
         if (0 <= sequenceTotal)
         {
             // If so, did it timeout while we were asleep? (if the queue is not empty and it's the same packet at the front)
-#warning how does this handle 0 length packets (fins)
-            if ( (!conn->ackq.empty()) && ntohl(conn->ackq.front().packet.sequence) + conn->ackq.front().packet.length == sequenceTotal)
+            if ( (!conn->ackq.empty()) && conn->ackq.front().lastSent + RSP_TIMEOUT < timestamp())
             {
                 // packet was not acked, it is the first in the queue
                 // Returns false if this is more than the third time or we fail to transmit
