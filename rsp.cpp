@@ -283,10 +283,10 @@ void * rsp_reader(void * args)
         pthread_mutex_unlock(&g_connectionsLock);
         
         rsp_message_t ackPacket;
+        prepare_outgoing_packet(*it->second, ackPacket);
         ackPacket.ack_sequence = htonl(it->second->ack_highwater);
         ackPacket.flags.flags.ack = 1;
         // send ack
-        prepare_outgoing_packet(*it->second, ackPacket);
         rsp_transmit(&ackPacket);
         
         // if we have any payload
