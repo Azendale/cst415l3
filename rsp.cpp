@@ -118,7 +118,7 @@ static int sendPacket(rsp_connection_t conn, rsp_message_t & packet, uint8_t tim
 static bool retransmitHeadPacket(rsp_connection_t conn)
 {
     ackq_entry_t & lostPacket = static_cast<RspData *>(conn)->ackq.front();
-    if (lostPacket.sendCount >= 3)
+    if (lostPacket.sendCount <= 3)
     {
         lostPacket.lastSent = timestamp();
         lostPacket.sendCount += 1;
