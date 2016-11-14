@@ -511,7 +511,15 @@ int rsp_close(rsp_connection_t rsp)
         pthread_cond_broadcast(&conn->connection_state_cond);
     }
     
+    // Unlock so the timer can see it should stop
+    pthread_mutex_unlock(&conn->connection_state_lock);
+    
     pthread_join(conn->timer_thread, nullptr);
+    
+    pthread_mutex_lock(&conn->connection_state_lock);
+    // Not worried about checking the state here, because by convention, it is not possible to go from 
+    // RSP_STATE_CLOSED to anything else, and it is also not possible to go from RSP_STATE_RST to anything 
+    // else. If functions aren't following that, then I guess I also can't trust them to use locks...
     
     // Ensure both queues are empty
     // As long as we aren't handling pointers, it really should be this easy for the STL one
