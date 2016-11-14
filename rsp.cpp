@@ -306,16 +306,16 @@ void * rsp_reader(void * args)
         }
         pthread_mutex_unlock(&g_connectionsLock);
         
-        rsp_message_t ackPacket;
-        prepare_outgoing_packet(*it->second, ackPacket);
-        ackPacket.ack_sequence = htonl(it->second->recv_highwater);
-        ackPacket.flags.flags.ack = 1;
-        // send ack
-        rsp_transmit_wrap(&ackPacket);
-        
         // if we have any payload
         if (0 < incoming_packet.length)
         {
+            rsp_message_t ackPacket;
+            prepare_outgoing_packet(*it->second, ackPacket);
+            ackPacket.ack_sequence = htonl(it->second->recv_highwater);
+            ackPacket.flags.flags.ack = 1;
+            // send ack
+            rsp_transmit_wrap(&ackPacket);
+        
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(it->second->recvq, queuedpacket);
