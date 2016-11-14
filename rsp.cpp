@@ -14,7 +14,7 @@
 #include <sys/time.h>
 
 // Way high for debugging for now
-#define RSP_TIMEOUT 7000
+#define RSP_TIMEOUT 1000
 
 static int g_window  = 256;
 static pthread_t g_readerThread;
@@ -420,7 +420,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     request.flags.flags.syn = 1;
     // length -- 0 from memset
     request.length = 1;
-    request.buffer[0] = 0;
+    request.buffer[0] = 70;
     // window
     request.window = htons(g_window);
     // sequence -- 0 from memset
@@ -509,7 +509,9 @@ int rsp_close(rsp_connection_t rsp)
     prepare_outgoing_packet(*conn, request);
     request.flags.flags.fin = 1;
     // length is already 0 from memset in the prepare outgoing packet function
-    // ack sequence doesn't make sense, we aren't acking anything here
+    request.sequence = htonl(conn->current_seq);
+    request.flags.flags.ack = 1;
+    request.ack_sequence = htonl(conn->recv_highwater);
     // buffer has no data
     
     conn->connection_state = RSP_STATE_WECLOSED;
