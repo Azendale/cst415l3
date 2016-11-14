@@ -268,6 +268,14 @@ void * rsp_reader(void * args)
         // if packet's byte range does not start at the end of the last byte we have, drop it
         if (ntohl(incoming_packet.sequence) != it->second->recv_highwater)
         {
+            // ack what we have already
+            rsp_message_t ackPacket;
+            prepare_outgoing_packet(*it->second, ackPacket);
+            ackPacket.ack_sequence = htonl(it->second->recv_highwater);
+            ackPacket.flags.flags.ack = 1;
+            // send ack
+            rsp_transmit_wrap(&ackPacket);
+
             // do nothing/continue loop -- we're dropping this packet
             pthread_mutex_unlock(&g_connectionsLock);
             pthread_mutex_unlock(&it->second->connection_state_lock);
