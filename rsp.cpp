@@ -584,7 +584,15 @@ int rsp_close(rsp_connection_t rsp)
     
     pthread_join(conn->timer_thread, nullptr);
     
+    pthread_mutex_lock(&g_connectionsLock);
     pthread_mutex_lock(&conn->connection_state_lock);
+    // Remove from incoming list to make it so it will not be referenced by reader after the following cleanup.
+    auto it = g_connections.find(conn->connection_name);
+    if (g_connections.cend() != it)
+    {
+        g_connections.erase(it);
+    }
+    pthread_mutex_unlock(&g_connectionsLock);
     // Not worried about checking the state here, because by convention, it is not possible to go from 
     // RSP_STATE_CLOSED to anything else, and it is also not possible to go from RSP_STATE_RST to anything 
     // else. If functions aren't following that, then I guess I also can't trust them to use locks...
