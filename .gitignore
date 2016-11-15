@@ -19,3 +19,6 @@ t_rsp_3_postconnect_rst_client.o
 t_rsp_3_rst_inject
 t_rsp_3_rst_inject.o
 RspData.o
+t_rsp_4
+t_rsp_4.o
+
