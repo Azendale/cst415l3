@@ -70,15 +70,32 @@ void sleepMilliseconds(uint64_t msdelay)
     nanosleep(&delay, NULL);
 }
 
-static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet)
+const std::string red("\033[0;31m");
+const std::string green("\033[1;32m");
+const std::string yellow("\033[1;33m");
+const std::string cyan("\033[0;36m");
+const std::string magenta("\033[0;35m");
+const std::string reset("\033[0m");
+
+
+static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, bool outgoing)
 {
+    if (outgoing)
+    {
+        std::cerr << green;
+    }
+    else
+    {
+        std::cerr << cyan;
+    }
     std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
+    std::cerr <<  reset;
 }
 
 static int rsp_transmit_wrap(rsp_message_t * packet)
 {
     // Comment if you don't want a packet capture on stderr
-    printPacketStderr("Transmit: ", *packet);
+    printPacketStderr("Transmit: ", *packet, true);
     return rsp_transmit(packet);
 }
 
@@ -86,7 +103,7 @@ static int rsp_receive_wrap(rsp_message_t * packet)
 {
     int result = rsp_receive(packet);
     // Comment if you don't want a packet capture on stderr
-    printPacketStderr("Recieve: ", *packet);
+    printPacketStderr("Recieve:  ", *packet, false);
     return result;
 }
 
