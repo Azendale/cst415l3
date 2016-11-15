@@ -190,13 +190,13 @@ void * rsp_timer(void * args)
     return nullptr;
 }
 
-static void sendAcket(RspData * conn, uint8_t length)
+static void sendAcket(RspData & conn, uint8_t length)
 {
     if (0 < length)
     {
         rsp_message_t ackPacket;
         prepare_outgoing_packet(conn, ackPacket);
-        ackPacket.ack_sequence = htonl(conn->recv_highwater);
+        ackPacket.ack_sequence = htonl(conn.recv_highwater);
         ackPacket.flags.flags.ack = 1;
         // send ack
         rsp_transmit_wrap(&ackPacket);
