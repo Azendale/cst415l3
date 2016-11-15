@@ -1,6 +1,6 @@
 // Author: Erik B. Andersen <erik@eoni.com>
 // CST415 Lab4 RSP implementation
-// Last modified: 2016-10-31
+// Last modified: 2016-11-14
 #include "rsp_if.h"
 #include "rsp.h"
 #include "queue.h"
@@ -14,7 +14,7 @@
 #include <sys/time.h>
 
 #define RSP_TIMEOUT 1000
-#define DEBUG true
+#define DEBUG false
 
 static int g_window  = 256;
 static pthread_t g_readerThread;
