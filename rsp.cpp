@@ -531,12 +531,11 @@ rsp_connection_t rsp_connect(const char *connection_name)
 // timesSentSoFar includes this time, should already be set by caller
 static void ackq_enqueue_packet(std::list<ackq_entry_t> & ackq, rsp_message_t & outgoing_packet, uint8_t timesSentSoFar)
 {
-    ackq_entry_t * queueItem;
-    queueItem = new ackq_entry_t;
-    memcpy(&(queueItem->packet), &outgoing_packet, sizeof(rsp_message_t));
-    queueItem->lastSent = timestamp();
-    queueItem->sendCount = timesSentSoFar;
-    ackq.push_back(*queueItem);
+    ackq_entry_t queueItem;
+    memcpy(&(queueItem.packet), &outgoing_packet, sizeof(rsp_message_t));
+    queueItem.lastSent = timestamp();
+    queueItem.sendCount = timesSentSoFar;
+    ackq.push_back(queueItem);
 }
 
 int rsp_close(rsp_connection_t rsp)
@@ -584,7 +583,7 @@ int rsp_close(rsp_connection_t rsp)
     // else. If functions aren't following that, then I guess I also can't trust them to use locks...
     
     // Ensure both queues are empty
-    // As long as we aren't handling pointers, it really should be this easy for the STL one
+    // easy as long as it is the STL with no pointers
     conn->ackq.clear();
     
     // Queue should be now closed as recv thread closes when it gets the fin in the right order
