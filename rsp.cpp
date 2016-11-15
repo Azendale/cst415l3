@@ -20,6 +20,7 @@ static int g_window  = 256;
 static pthread_t g_readerThread;
 static bool g_readerContinue = true;
 static pthread_mutex_t g_connectionsLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_packetPrintLock = PTHREAD_MUTEX_INITIALIZER;
 static std::map<std::string, RspData *> g_connections;
 
 using std::string;
@@ -80,6 +81,7 @@ const std::string reset("\033[0m");
 
 static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, bool outgoing)
 {
+    pthread_mutex_lock(&g_packetPrintLock);
     if (outgoing)
     {
         std::cerr << green;
@@ -90,6 +92,7 @@ static void printPacketStderr(std::string prestring, rsp_message_t & incoming_pa
     }
     std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
     std::cerr <<  reset;
+    pthread_mutex_unlock(&g_packetPrintLock);
 }
 
 static int rsp_transmit_wrap(rsp_message_t * packet)
@@ -384,6 +387,8 @@ void rsp_shutdown()
     rsp_transmit_wrap(&reflection);
     
     pthread_join(g_readerThread, nullptr);
+    pthread_mutex_destroy(&g_connectionsLock);
+    pthread_mutex_destroy(&g_packetPrintLock);
 }
 
 // Cleanup for the rsp_connect() function.
