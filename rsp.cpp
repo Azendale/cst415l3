@@ -232,9 +232,14 @@ void * rsp_reader(void * args)
         // Handle packet
         pthread_mutex_lock(&it->second->connection_state_lock);
         
-        // Is packet RST (apparently err does not mean the connection is dead?)
-        //if (incoming_packet.flags.flags.rst || incoming_packet.flags.flags.err)
-        if (incoming_packet.flags.flags.rst)
+        if (incoming_packet.flags.flags.err)
+        {
+            // (apparently err does not mean the connection is dead?) 
+            pthread_mutex_unlock(&g_connectionsLock);
+            continue;
+        }
+        // Is packet RST
+        else if (incoming_packet.flags.flags.rst)
         {
             it->second->connection_state = RSP_STATE_RST;
             pthread_cond_broadcast(&it->second->connection_state_cond);
