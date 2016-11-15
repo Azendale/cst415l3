@@ -185,6 +185,10 @@ void * rsp_timer(void * args)
                         std::cerr << "Killing connection " << conn->connection_name << " after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 3 times." << std::endl;
                     }
                     conn->connection_state = RSP_STATE_RST;
+                    rsp_message_t outgoing_packet;
+                    prepare_outgoing_packet(*conn, outgoing_packet);
+                    outgoing_packet.flags.flags.rst = 1;
+                    rsp_transmit_wrap(&outgoing_packet);
                     pthread_cond_broadcast(&conn->connection_state_cond);
                     pthread_mutex_unlock(&conn->connection_state_lock);
                     return nullptr;
