@@ -545,31 +545,34 @@ int rsp_close(rsp_connection_t rsp)
     // Send fin
     rsp_message_t request;
     pthread_mutex_lock(&conn->connection_state_lock);
-    prepare_outgoing_packet(*conn, request);
-    request.flags.flags.fin = 1;
-    // fin can have a single byte that gets thrown out according to Phil
-    request.length = 1;
-    request.sequence = htonl(conn->current_seq);
-    // buffer has no data
-    
-    conn->connection_state = RSP_STATE_WECLOSED;
-    pthread_cond_broadcast(&conn->connection_state_cond);
-    
-    ackq_enqueue_packet(conn->ackq, request, 1);
-    // (if sending the fin packet worked)
-    if (!rsp_transmit_wrap(&request))
+    if (RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
     {
-        // Since we were able to send the fin, wait for it to be acked or timed out
-        while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
-        {
-            pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
-        }
-    }
-    else
-    {
-        // Couldn't send. Something is quite broken getting to the RSP server
-        conn->connection_state = RSP_STATE_RST;
+        prepare_outgoing_packet(*conn, request);
+        request.flags.flags.fin = 1;
+        // fin can have a single byte that gets thrown out according to Phil
+        request.length = 1;
+        request.sequence = htonl(conn->current_seq);
+        // buffer has no data
+        
+        conn->connection_state = RSP_STATE_WECLOSED;
         pthread_cond_broadcast(&conn->connection_state_cond);
+        
+        ackq_enqueue_packet(conn->ackq, request, 1);
+        // (if sending the fin packet worked)
+        if (!rsp_transmit_wrap(&request))
+        {
+            // Since we were able to send the fin, wait for it to be acked or timed out
+            while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
+            {
+                pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
+            }
+        }
+        else
+        {
+            // Couldn't send. Something is quite broken getting to the RSP server
+            conn->connection_state = RSP_STATE_RST;
+            pthread_cond_broadcast(&conn->connection_state_cond);
+        }
     }
     
     // Unlock so the timer can see it should stop
