@@ -548,8 +548,6 @@ int rsp_close(rsp_connection_t rsp)
     // fin can have a single byte that gets thrown out according to Phil
     request.length = 1;
     request.sequence = htonl(conn->current_seq);
-    request.flags.flags.ack = 1;
-    request.ack_sequence = htonl(conn->recv_highwater);
     // buffer has no data
     
     conn->connection_state = RSP_STATE_WECLOSED;
