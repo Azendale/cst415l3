@@ -30,6 +30,7 @@ clean:
 	rm -f t_rsp_1
 	rm -f t_rsp_2
 	rm -f t_rsp_4
+	rm -f send2
 	rm -f *.o
 
 .c.o:
