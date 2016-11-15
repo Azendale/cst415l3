@@ -6,6 +6,11 @@
 // Third time this is run, it should test what happens when you get an RST on connect
 // Use it to test like this (this is what a passing test should look like,
 // failing test would say it got a non-null rsp for the third time or would block.)
+
+// Note that with the new timeout code, you must run the 3rd instance in parallel with
+// the second, before the second times out and sends an RST for the connection. Otherwise,
+// the third will just block waiting for a forth instance.
+
 // [erik.andersen@loki cst415l3]$ ./t_rsp_2
 // If this is the first run, ctrl-c when you see this message.
 // ^C
