@@ -190,6 +190,19 @@ void * rsp_timer(void * args)
     return nullptr;
 }
 
+static void sendAcket(RspData * conn, uint8_t length)
+{
+    if (0 < length)
+    {
+        rsp_message_t ackPacket;
+        prepare_outgoing_packet(conn, ackPacket);
+        ackPacket.ack_sequence = htonl(conn->recv_highwater);
+        ackPacket.flags.flags.ack = 1;
+        // send ack
+        rsp_transmit_wrap(&ackPacket);
+    }
+}
+
 void * rsp_reader(void * args)
 {
     rsp_message_t incoming_packet;
@@ -269,12 +282,7 @@ void * rsp_reader(void * args)
         if (ntohl(incoming_packet.sequence) != it->second->recv_highwater)
         {
             // ack what we have already
-            rsp_message_t ackPacket;
-            prepare_outgoing_packet(*it->second, ackPacket);
-            ackPacket.ack_sequence = htonl(it->second->recv_highwater);
-            ackPacket.flags.flags.ack = 1;
-            // send ack
-            rsp_transmit_wrap(&ackPacket);
+            sendAcket(*it->second, incoming_packet.length);
 
             // do nothing/continue loop -- we're dropping this packet
             pthread_mutex_unlock(&g_connectionsLock);
@@ -317,13 +325,7 @@ void * rsp_reader(void * args)
         // if we have any payload
         if (0 < incoming_packet.length)
         {
-            rsp_message_t ackPacket;
-            prepare_outgoing_packet(*it->second, ackPacket);
-            ackPacket.ack_sequence = htonl(it->second->recv_highwater);
-            ackPacket.flags.flags.ack = 1;
-            // send ack
-            rsp_transmit_wrap(&ackPacket);
-        
+            sendAcket(*it->second, incoming_packet.length);
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
             Q_Enqueue(it->second->recvq, queuedpacket);
@@ -516,7 +518,8 @@ int rsp_close(rsp_connection_t rsp)
     pthread_mutex_lock(&conn->connection_state_lock);
     prepare_outgoing_packet(*conn, request);
     request.flags.flags.fin = 1;
-    // length is already 0 from memset in the prepare outgoing packet function
+    // fin can have a single byte that gets thrown out according to Phil
+    request.length = 1;
     request.sequence = htonl(conn->current_seq);
     request.flags.flags.ack = 1;
     request.ack_sequence = htonl(conn->recv_highwater);
