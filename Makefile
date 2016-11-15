@@ -1,11 +1,11 @@
 #**************************************************
-# Makefile for OIT CST415 Lab3 simple RSP protocol
-# CST 415 Lab 3
+# Makefile for OIT CST415 Lab4 simple RSP protocol
+# CST 415 Lab 4
 #
 # Author: Philip Howard
 # Email:  phil.howard@oit.edu
 # Date:   Sept 22, 2016
-# Modifications by Erik Andersen, <erik@eoni.com>, last changed 2016-10-31
+# Modifications by Erik Andersen, <erik@eoni.com>, last changed 2016-11-14
 #
 COPTS = -g3 -O0 -Wall -pthread -Wwrite-strings
 CPPOPTS = $(COPTS) -std=c++11

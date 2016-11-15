@@ -1,6 +1,6 @@
 // Author: Erik B. Andersen <erik@eoni.com>
-// CST415 Lab3 testing program (test 1)
-// Last modified: 2016-10-31
+// CST415 Lab4 testing program (test 1)
+// Last modified: 2016-11-14
 //
 // Test that nothing goes wrong when you close a connection with data left in the buffer.
 // Should output something like:

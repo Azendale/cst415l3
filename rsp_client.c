@@ -1,5 +1,5 @@
 // Written by Phil Howard <phil.howard@oit.edu>
-// Small modifications by Erik Andersen <erik@eoni.com> (change connection string)
+// Small modifications by Erik Andersen <erik@eoni.com> (change connection string, add rsp_shutdown)
 // Last modified: 2016-10-31
 #include <string.h>
 #include <stdio.h>

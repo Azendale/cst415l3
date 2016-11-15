@@ -1,3 +1,8 @@
+// Author: Erik B. Andersen <erik@eoni.com>
+// CST415 Lab4 testing program (test 4)
+// Last modified: 2016-11-14
+//
+// Test two connections can be run at the same time
 #include <string.h>
 #include <stdio.h>
 

@@ -1,6 +1,6 @@
 // Author: Erik B. Andersen <erik@eoni.com>
-// CST415 Lab3 RSP connection tracking data
-// Last modified: 2016-10-31
+// CST415 Lab4 RSP connection tracking data
+// Last modified: 2016-11-13
 #include <string>
 #include <list>
 #include "queue.h"
