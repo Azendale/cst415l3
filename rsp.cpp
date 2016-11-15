@@ -182,7 +182,7 @@ void * rsp_timer(void * args)
                 {
                     if (DEBUG)
                     {
-                        std::cerr << "Killing connection " << conn->connection_name << "after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 3 times." << std::endl;
+                        std::cerr << "Killing connection " << conn->connection_name << " after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 3 times." << std::endl;
                     }
                     conn->connection_state = RSP_STATE_RST;
                     pthread_cond_broadcast(&conn->connection_state_cond);

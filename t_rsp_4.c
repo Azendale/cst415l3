@@ -17,7 +17,7 @@ int main(int argc, char **argv)
     rsp_connection_t rsp;
     rsp_connection_t rsp2;
 
-    rsp = rsp_connect("erik_multi_rsp_client");
+    rsp = rsp_connect("erik_m_rsp_client");
     if (rsp != NULL) 
     {
         printf("Connection 1 established\n");
@@ -28,7 +28,7 @@ int main(int argc, char **argv)
         rsp_shutdown();
         return -1;
     }
-    rsp2 = rsp_connect("erik_multi_rsp_client2");
+    rsp2 = rsp_connect("erik_m_rsp_client2");
 
     if (rsp != NULL) 
     {
