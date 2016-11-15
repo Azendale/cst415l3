@@ -79,17 +79,10 @@ const std::string magenta("\033[0;35m");
 const std::string reset("\033[0m");
 
 
-static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, bool outgoing)
+static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, std::string color)
 {
     pthread_mutex_lock(&g_packetPrintLock);
-    if (outgoing)
-    {
-        std::cerr << green;
-    }
-    else
-    {
-        std::cerr << cyan;
-    }
+    std::cerr << color;
     std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
     std::cerr <<  reset;
     pthread_mutex_unlock(&g_packetPrintLock);
@@ -98,7 +91,7 @@ static void printPacketStderr(std::string prestring, rsp_message_t & incoming_pa
 static int rsp_transmit_wrap(rsp_message_t * packet)
 {
     // Comment if you don't want a packet capture on stderr
-    printPacketStderr("Transmit: ", *packet, true);
+    printPacketStderr("Transmit: ", *packet, green);
     return rsp_transmit(packet);
 }
 
@@ -106,7 +99,7 @@ static int rsp_receive_wrap(rsp_message_t * packet)
 {
     int result = rsp_receive(packet);
     // Comment if you don't want a packet capture on stderr
-    printPacketStderr("Recieve:  ", *packet, false);
+    printPacketStderr("Recieve:  ", *packet, cyan);
     return result;
 }
 
@@ -298,6 +291,7 @@ void * rsp_reader(void * args)
             uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
             while (! it->second->ackq.empty() && ntohl(it->second->ackq.front().packet.sequence) + it->second->ackq.front().packet.length <= receivedThru)
             {
+                printPacketStderr("rm_ackq:  ", it->second->ackq.front().packet, red);
                 it->second->ackq.pop_front();
             }
             it->second->remoteConfirm_highwater = receivedThru;
@@ -553,11 +547,10 @@ int rsp_close(rsp_connection_t rsp)
     conn->connection_state = RSP_STATE_WECLOSED;
     pthread_cond_broadcast(&conn->connection_state_cond);
     
+    ackq_enqueue_packet(conn->ackq, request, 1);
     // (if sending the fin packet worked)
     if (!rsp_transmit_wrap(&request))
     {
-        ackq_enqueue_packet(conn->ackq, request, 1);
-        
         // Since we were able to send the fin, wait for it to be acked or timed out
         while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
         {
