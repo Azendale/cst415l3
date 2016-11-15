@@ -25,6 +25,7 @@ int main(int argc, char **argv)
     else
     {
         printf("Couldn't connect for connection 1.\n");
+        rsp_shutdown();
         return -1;
     }
     rsp2 = rsp_connect("erik_multi_rsp_client2");
