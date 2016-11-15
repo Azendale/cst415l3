@@ -49,7 +49,7 @@ void sleepRspTimeout()
 }
 
 // Figure out how much more time we need to wait for RSP_TIMEOUT amount of time to have passed
-uint64_t expireDelay(uint64_t pastTimestamp)
+static uint64_t expireDelay(uint64_t pastTimestamp)
 {
     uint64_t pastOffset = timestamp() - pastTimestamp;
     if (pastOffset >= RSP_TIMEOUT)
@@ -63,7 +63,7 @@ uint64_t expireDelay(uint64_t pastTimestamp)
 }
 
 // Pause for a certain number of milliseconds.
-void sleepMilliseconds(uint64_t msdelay)
+static void sleepMilliseconds(uint64_t msdelay)
 {
     struct timespec delay;
     delay.tv_sec =  msdelay / 1000;
@@ -71,12 +71,13 @@ void sleepMilliseconds(uint64_t msdelay)
     nanosleep(&delay, NULL);
 }
 
-const std::string red("\033[0;31m");
-const std::string green("\033[1;32m");
-const std::string yellow("\033[1;33m");
-const std::string cyan("\033[0;36m");
-const std::string magenta("\033[0;35m");
-const std::string reset("\033[0m");
+// Terminal colors, for helping with reading debug packet printouts
+static const std::string red("\033[0;31m");
+static const std::string green("\033[1;32m");
+static const std::string yellow("\033[1;33m");
+static const std::string cyan("\033[0;36m");
+static const std::string magenta("\033[0;35m");
+static const std::string reset("\033[0m");
 
 
 static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, std::string color)
@@ -154,7 +155,7 @@ static bool retransmitHeadPacket(rsp_connection_t conn)
 }
 
 // One timer thread per connection
-void * rsp_timer(void * args)
+static void * rsp_timer(void * args)
 {
     RspData * conn = static_cast<RspData *>(args);
     uint64_t expireDelay;
@@ -216,7 +217,7 @@ static void sendAcket(RspData & conn, uint8_t length)
     }
 }
 
-void * rsp_reader(void * args)
+static void * rsp_reader(void * args)
 {
     rsp_message_t incoming_packet;
     bool readCont = true;
