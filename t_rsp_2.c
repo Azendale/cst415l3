@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     if (rsp != NULL) 
     {
         printf("Got non-null rsp object.\n");
-        rsp_close();
+        rsp_close(rsp);
     }
     else
     {
