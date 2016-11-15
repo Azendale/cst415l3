@@ -132,17 +132,6 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
     packet.sequence = htonl(conn.current_seq);
 }
 
-// Send a packet that needs to be acked, automatically placing it in the ackq
-static int sendPacket(rsp_connection_t conn, rsp_message_t & packet, uint8_t timesSentSoFar)
-{
-    ackq_entry_t ackqEntry;
-    ackqEntry.packet = packet;
-    ackqEntry.lastSent = timestamp();
-    ackqEntry.sendCount = timesSentSoFar + 1;
-    static_cast<RspData *>(conn)->ackq.push_back(ackqEntry);
-    return rsp_transmit_wrap(&packet);
-}
-
 // retransmit lost packet -- retransmits the packet on the top of the ackq
 // returns false if this is the third time or we weren't able to send
 // precondition: there must actually be a packet in the head of the ackq
@@ -653,7 +642,6 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
     }
     // Dequeue
     rsp_message_t * incoming;
-#warning need to thing through lock order of the lock in phil's queue and the locks I use -- is the order of the next two lines dangerous?
     pthread_mutex_unlock(&conn->connection_state_lock);
     incoming = static_cast<rsp_message_t *>(Q_Dequeue(conn->recvq));
     if (nullptr == incoming)
