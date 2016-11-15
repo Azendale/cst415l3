@@ -30,7 +30,7 @@ int main(int argc, char **argv)
     }
     rsp2 = rsp_connect("erik_m_rsp_client2");
 
-    if (rsp != NULL) 
+    if (rsp2 != NULL) 
     {
         printf("Connection 2 established\n");
         printf("Write to connection 1\n");
