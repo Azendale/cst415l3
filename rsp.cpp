@@ -13,8 +13,8 @@
 #include <map>
 #include <sys/time.h>
 
-// Way high for debugging for now
 #define RSP_TIMEOUT 1000
+#define DEBUG true
 
 static int g_window  = 256;
 static pthread_t g_readerThread;
@@ -81,11 +81,14 @@ const std::string reset("\033[0m");
 
 static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, std::string color)
 {
-    pthread_mutex_lock(&g_packetPrintLock);
-    std::cerr << color;
-    std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
-    std::cerr <<  reset;
-    pthread_mutex_unlock(&g_packetPrintLock);
+    if (DEBUG)
+    {
+        pthread_mutex_lock(&g_packetPrintLock);
+        std::cerr << color;
+        std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
+        std::cerr <<  reset;
+        pthread_mutex_unlock(&g_packetPrintLock);
+    }
 }
 
 static int rsp_transmit_wrap(rsp_message_t * packet)
@@ -138,7 +141,7 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
 static bool retransmitHeadPacket(rsp_connection_t conn)
 {
     ackq_entry_t & lostPacket = static_cast<RspData *>(conn)->ackq.front();
-    if (lostPacket.sendCount <= 3)
+    if (lostPacket.sendCount < 3)
     {
         lostPacket.lastSent = timestamp();
         lostPacket.sendCount += 1;
@@ -177,7 +180,10 @@ void * rsp_timer(void * args)
                 // Returns false if this is more than the third time or we fail to transmit
                 if (!retransmitHeadPacket(conn))
                 {
-                    std::cerr << "Killing connection " << conn->connection_name << "after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 4 times." << std::endl;
+                    if (DEBUG)
+                    {
+                        std::cerr << "Killing connection " << conn->connection_name << "after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 3 times." << std::endl;
+                    }
                     conn->connection_state = RSP_STATE_RST;
                     pthread_cond_broadcast(&conn->connection_state_cond);
                     pthread_mutex_unlock(&conn->connection_state_lock);
@@ -227,7 +233,10 @@ void * rsp_reader(void * args)
         if (g_connections.cend() == it)
         {
             // Couldn't find matching connection
-            std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
+            if (DEBUG)
+            {
+                std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
+            }
         
             pthread_mutex_unlock(&g_connectionsLock);
             continue;
@@ -465,7 +474,10 @@ rsp_connection_t rsp_connect(const char *connection_name)
     // Need to make sure that we do not have conflicting name
     if (g_connections.count(connection_name) != 0)
     {
-        std::cerr << "Connection already exists locally with that name." << std::endl;
+        if (DEBUG)
+        {
+            std::cerr << "Connection already exists locally with that name." << std::endl;
+        }
         pthread_mutex_unlock(&conn->connection_state_lock);
         delete conn;
         pthread_mutex_unlock(&g_connectionsLock);
