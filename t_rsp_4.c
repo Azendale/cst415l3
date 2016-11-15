@@ -33,11 +33,13 @@ int main(int argc, char **argv)
     {
         printf("Connection 2 established\n");
         printf("Write to connection 1");
+        rsp_write(rsp, buff, strlen(buff)+1);
         printf("Read from connection 2");
         memset(buff3, 0, sizeof(buff3));
         rsp_read(rsp2, buff3, sizeof(buff3));
         printf("%s\n", buff3);
         printf("Write to connection 2");
+        rsp_write(rsp2, buff2, strlen(buff2)+1);
         printf("Read from connection 1");
         memset(buff3, 0, sizeof(buff3));
         rsp_read(rsp, buff3, sizeof(buff3));
