@@ -188,6 +188,7 @@ void * rsp_timer(void * args)
                 // Returns false if this is more than the third time or we fail to transmit
                 if (!retransmitHeadPacket(conn))
                 {
+                    std::cerr << "Killing connection " << conn->connection_name << "after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << conn->ackq.front().packet.length << " timed out 4 times." << std::endl;
                     conn->connection_state = RSP_STATE_RST;
                     pthread_cond_broadcast(&conn->connection_state_cond);
                     pthread_mutex_unlock(&conn->connection_state_lock);
@@ -316,15 +317,22 @@ void * rsp_reader(void * args)
         {
             // No more packets expected from them
             Q_Close(it->second->recvq);
-            if (RSP_STATE_WECLOSED == it->second->connection_state)
+            if (RSP_STATE_WECLOSED == it->second->connection_state && incoming_packet.flags.flags.ack)
             {
-                // Connection now full closed
+                // Connection now full closed -- they are acking a close we sent
                 it->second->connection_state = RSP_STATE_CLOSED;
             }
+            //else if ((RSP_STATE_WECLOSED == it->second->connection_state && !incoming_packet.flags.flags.ack)
+            //{
+                //// if state=RSP_STATE_WECLOSED and we get a fin without an ack -- they just tried 
+                //// to close while we were waiting for our close to get to them. Ack their close,
+                //// but try to wait for them to respond to our close (or for our close to timeout)
+                //it->second->connection_state = RSP_STATE_CLOSED;
+                
+            //}
             else
             {
                 it->second->connection_state = RSP_STATE_THEYCLOSED;
-                // Do we have a premade function to send fin with?
                 rsp_message_t lastFin;
                 prepare_outgoing_packet(*it->second, lastFin);
                 lastFin.flags.flags.fin = 1;
