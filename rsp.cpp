@@ -141,6 +141,7 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
 // precondition: there must actually be a packet in the head of the ackq
 static bool retransmitHeadPacket(rsp_connection_t conn)
 {
+#warning need to change ack queue to be in sent order not sequence order. That means making sure an ack removes multiple ackq items until the thing at the front is not covered by the incoming ack
     ackq_entry_t & lostPacket = static_cast<RspData *>(conn)->ackq.front();
     if (lostPacket.sendCount < 3)
     {
@@ -177,6 +178,7 @@ static void * rsp_timer(void * args)
             // If so, did it timeout while we were asleep? (if the queue is not empty and it's the same packet at the front)
             if ( (!conn->ackq.empty()) && conn->ackq.front().lastSent + RSP_TIMEOUT < timestamp())
             {
+#warning need to half window size on timeout, see slide 18
                 // packet was not acked, it is the first in the queue
                 // Returns false if this is more than the third time or we fail to transmit
                 if (!retransmitHeadPacket(conn))
@@ -292,6 +294,9 @@ static void * rsp_reader(void * args)
         // take stuff out of the timeout queue when it is acked
         if (incoming_packet.flags.flags.ack)
         {
+#warning need to implement window size updates -- see slide 17
+#warning need to only update on window sizes that remove things from the ackq
+#warning on acks that remove from the queue, see if we can send from to-be-sent queue -- see slide 15
             uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
             while (! it->second->ackq.empty() && ntohl(it->second->ackq.front().packet.sequence) + it->second->ackq.front().packet.length <= receivedThru)
             {
@@ -304,6 +309,8 @@ static void * rsp_reader(void * args)
         // if packet's byte range does not start at the end of the last byte we have, drop it
         if (ntohl(incoming_packet.sequence) != it->second->recv_highwater)
         {
+#warning insert packet in out of order queue, IF it is past where we were expecting instead of before (throw away if before, but send an ack.)
+#warning on queue insert, see if that gives a run of in order packets. If so, send ack for end of in order sequence and move packets to recv q -- see slide 20
             // ack what we have already
             sendAcket(*it->second, incoming_packet.length);
 
@@ -640,6 +647,8 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
     }
+#warning put packet in to-be-sent queue instead in rsp_write
+#warning then need to trigger same behavior as the reader thread has when it gets an ack (to try to send as much as allowed). see slide 15
     prepare_outgoing_packet(*conn, outgoing_packet);
     
     outgoing_packet.length = size;

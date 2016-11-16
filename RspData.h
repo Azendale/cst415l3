@@ -5,6 +5,7 @@
 #include <list>
 #include "queue.h"
 #include "rsp_if.h"
+#include <map>
 
 using std::string;
 
@@ -54,5 +55,12 @@ public:
     int64_t recv_highwater;
     // Farthest the remote side has reported they got
     int64_t remoteConfirm_highwater;
-    
+    // For holding out of order packets that are ahead of the next packet we expect
+    std::map<uint_32_t, rsp_message_t> aheadPackets;
+    // For buffering outgoing packets that are waiting because of window restrictions
+    queue_t sendq;
+    // are we in quick start mode?
+    bool quickstart;
+    // counter to track runs of acks that affect window size
+    uint num_acks;
 };
