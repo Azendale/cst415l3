@@ -469,7 +469,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
     request.flags.flags.syn = 1;
     // length -- 0 from memset
     request.length = 1;
-    request.buffer[0] = 30;
+    request.buffer[0] = 0;
     // window
     request.window = htons(g_window);
     // sequence -- 0 from memset
