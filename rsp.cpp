@@ -14,7 +14,7 @@
 #include <sys/time.h>
 
 #define RSP_TIMEOUT 1000
-#define DEBUG false
+#define DEBUG true
 
 static int g_window  = 256;
 static pthread_t g_readerThread;
