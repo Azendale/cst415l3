@@ -131,7 +131,7 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
     strncpy(packet.connection_name, conn.connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
     packet.src_port = conn.src_port;
     packet.dst_port = conn.dst_port;
-    packet.window = htons(g_window);
+    packet.window = htons(conn.window);
     // Not totally sure this shouldn't be set by the calling function. We'll see
     packet.sequence = htonl(conn.current_seq);
 }
@@ -217,6 +217,24 @@ static void sendAcket(RspData & conn, uint8_t length)
         // send ack
         rsp_transmit_wrap(&ackPacket);
     }
+}
+
+// Assumes caller has conn locked
+void check_send(RspData & conn)
+{
+    int send_permitted_count = conn.window - conn.ackq.size();
+    rsp_message_t * queuePacket = nullptr;
+    while (send_permitted_count > 0 && (queuePacket = Q_Dequeue_Nowait(conn->sendq))
+    {
+        --send_permitted_count;
+#warning how will sequence numbers work 
+        rsp_transmit_wrap(queuePacket);
+    }
+}
+
+void enqueue_run_from_outoforder(RspData & conn)
+{
+    
 }
 
 static void * rsp_reader(void * args)
@@ -320,11 +338,20 @@ static void * rsp_reader(void * args)
             continue;
         }
         
+#warning should move processing packets to their own function so we can handle them one at a time as they happen out of the out of order queue
         it->second->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
         
         // Is packet FIN
         if (incoming_packet.flags.flags.fin)
         {
+            if (incoming_packet.flags.flags.ack)
+            {
+                it->second->ourCloseAcked = true;
+            }
+            else
+            {
+                it->second->theirCloseRecieved = true;
+            }
             // No more packets expected from them
             Q_Close(it->second->recvq);
             if (RSP_STATE_WECLOSED == it->second->connection_state && incoming_packet.flags.flags.ack)
@@ -478,6 +505,7 @@ rsp_connection_t rsp_connect(const char *connection_name)
      
     // There is no way for anyone else to have access to this out of order lock, so there is no deadlock potential from this out of order locking
     pthread_mutex_lock(&conn->connection_state_lock);
+    conn->window = g_window;
     
 
     // Lock the g_OpenConnections lock
@@ -574,7 +602,7 @@ int rsp_close(rsp_connection_t rsp)
         if (!rsp_transmit_wrap(&request))
         {
             // Since we were able to send the fin, wait for it to be acked or timed out
-            while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
+            while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state && !(conn->ourCloseAcked && theirCloseRecieved))
             {
                 pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
             }

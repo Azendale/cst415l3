@@ -42,7 +42,7 @@ public:
     // We plan to do no math on the following two variables, so by convention, they will be in network order
     uint16_t src_port;
     uint16_t dst_port;
-    //uint16_t far_window;
+    uint16_t window;
     
     uint64_t current_seq;
     std::list<ackq_entry_t> ackq;
@@ -62,5 +62,7 @@ public:
     // are we in quick start mode?
     bool quickstart;
     // counter to track runs of acks that affect window size
-    uint num_acks;
+    uint ackrun;
+    bool ourCloseAcked;
+    bool theirCloseRecieved;
 };
