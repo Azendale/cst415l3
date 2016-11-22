@@ -139,7 +139,6 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
 // precondition: there must actually be a packet in the head of the ackq
 static bool retransmitHeadPacket(rsp_connection_t conn)
 {
-#warning need to change ack queue to be in sent order not sequence order. That means making sure an ack removes multiple ackq items until the thing at the front is not covered by the incoming ack
     ackq_entry_t & lostPacket = static_cast<RspData *>(conn)->ackq.front();
     if (lostPacket.sendCount < 3)
     {
