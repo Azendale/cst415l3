@@ -86,8 +86,8 @@ static void printPacketStderr(std::string prestring, rsp_message_t & incoming_pa
     {
         pthread_mutex_lock(&g_packetPrintLock);
         std::cerr << color;
-        std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}\n";
-        std::cerr <<  reset;
+        std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}";
+        std::cerr <<  reset << std::endl;
         pthread_mutex_unlock(&g_packetPrintLock);
     }
 }
