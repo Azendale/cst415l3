@@ -17,10 +17,6 @@ using std::string;
 #define RSP_STATE_CLOSED 2
 // Something went wrong and the connection was closed without FINs
 #define RSP_STATE_RST 3
-// We closed the connection
-#define RSP_STATE_WECLOSED 4
-// They closed the connection
-#define RSP_STATE_THEYCLOSED 5
 
 typedef struct
 {
@@ -64,5 +60,6 @@ public:
     // counter to track runs of acks that affect window size
     uint ackrun;
     bool ourCloseAcked;
+    bool ourCloseSent;
     bool theirCloseRecieved;
 };

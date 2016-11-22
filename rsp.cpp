@@ -110,18 +110,16 @@ static int rsp_receive_wrap(rsp_message_t * packet)
 // Figure out how long we need to wait for the packet in the front of the ackq to timeout, and 
 // store the amount of time to wait in delay. Store the end of the byte range the packet completes
 // in sequenceTotal
-static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay, int64_t & sequenceTotal)
+static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay)
 {
     if (conn->ackq.empty())
     {
         delay = RSP_TIMEOUT;
-        sequenceTotal = -1;
     }
     else
     {
         ackq_entry_t & waitingPacket = conn->ackq.front();
         delay = expireDelay(waitingPacket.lastSent);
-        sequenceTotal = ntohl(waitingPacket.packet.sequence) + waitingPacket.packet.length;
     }
 }
 
@@ -160,22 +158,20 @@ static void * rsp_timer(void * args)
 {
     RspData * conn = static_cast<RspData *>(args);
     uint64_t expireDelay;
-    // 64 bits instead of 32 because I need another bit for signedness (negative means "null" sequence number)
-    int64_t sequenceTotal;
 
     pthread_mutex_lock(&conn->connection_state_lock);
-    getNextAckqPacketDelay(conn, expireDelay, sequenceTotal);
+    getNextAckqPacketDelay(conn, expireDelay);
     
-    while (RSP_STATE_OPEN == conn->connection_state || RSP_STATE_WECLOSED == conn->connection_state)
+    while (RSP_STATE_OPEN == conn->connection_state && ! conn->ourCloseAcked)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         sleepMilliseconds(expireDelay);
         
         pthread_mutex_lock(&conn->connection_state_lock);
-        // Is there a packet we were waiting for?
-        if (0 <= sequenceTotal)
+        // Were we waiting on packets? (if not, we were waiting for packets to wait on!)
+        if (!conn->ackq.empty())
         {
-            // If so, did it timeout while we were asleep? (if the queue is not empty and it's the same packet at the front)
+            // If so, did the front one timeout while we were alseep?
             if ( (!conn->ackq.empty()) && conn->ackq.front().lastSent + RSP_TIMEOUT < timestamp())
             {
 #warning need to half window size on timeout, see slide 18
@@ -228,6 +224,8 @@ void check_send(RspData & conn)
     {
         --send_permitted_count;
 #warning how will sequence numbers work 
+        // They will be already set when the packet is put in the queue
+#warning put packet in ackq
         rsp_transmit_wrap(queuePacket);
     }
 }
@@ -338,7 +336,7 @@ static void * rsp_reader(void * args)
             continue;
         }
         
-#warning should move processing packets to their own function so we can handle them one at a time as they happen out of the out of order queue
+#warning should move processing packets to their own function so we can handle them one at a time as they happen out of the out of order queue -- process_acked_packet()?
         it->second->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
         
         // Is packet FIN
@@ -347,40 +345,32 @@ static void * rsp_reader(void * args)
             if (incoming_packet.flags.flags.ack)
             {
                 it->second->ourCloseAcked = true;
+                // // Done already at the end of this if
+                // pthread_cond_broadcast(&it->second->connection_state_cond);
+                // sendq should already be closed
             }
             else
             {
+                // // Done already at the end of this if
+                // pthread_cond_broadcast(&it->second->connection_state_cond);
                 it->second->theirCloseRecieved = true;
-            }
-            // No more packets expected from them
-            Q_Close(it->second->recvq);
-            if (RSP_STATE_WECLOSED == it->second->connection_state && incoming_packet.flags.flags.ack)
-            {
-                // Connection now full closed -- they are acking a close we sent
-                it->second->connection_state = RSP_STATE_CLOSED;
-            }
-            //else if ((RSP_STATE_WECLOSED == it->second->connection_state && !incoming_packet.flags.flags.ack)
-            //{
-                //// if state=RSP_STATE_WECLOSED and we get a fin without an ack -- they just tried 
-                //// to close while we were waiting for our close to get to them. Ack their close,
-                //// but try to wait for them to respond to our close (or for our close to timeout)
-                //it->second->connection_state = RSP_STATE_CLOSED;
-                
-            //}
-            else
-            {
-                it->second->connection_state = RSP_STATE_THEYCLOSED;
+                Q_Close(it->second->recvq);
                 rsp_message_t lastFin;
                 prepare_outgoing_packet(*it->second, lastFin);
                 lastFin.flags.flags.fin = 1;
                 lastFin.flags.flags.ack = 1;
+                // Expecting that this incoming packet already updated the recv_highwater
                 lastFin.ack_sequence = htonl(it->second->recv_highwater);
                 rsp_transmit_wrap(&lastFin);
-                it->second->connection_state = RSP_STATE_CLOSED;
+             }
+            
+            // We have the last packet from them, and the last ack from them
+            if (it->second->theirCloseRecieved && it->second->ourCloseAcked)
+            {
+                g_connections.erase(it);
             }
             pthread_cond_broadcast(&it->second->connection_state_cond);
             pthread_mutex_unlock(&it->second->connection_state_lock);
-            g_connections.erase(it);
             pthread_mutex_unlock(&g_connectionsLock);
             continue;
         }
@@ -585,7 +575,8 @@ int rsp_close(rsp_connection_t rsp)
     // Send fin
     rsp_message_t request;
     pthread_mutex_lock(&conn->connection_state_lock);
-    if (RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state)
+    // Always send a fin, as long as we haven't before
+    if (! conn->ourCloseSent && RSP_STATE_RST != conn->connection_state)
     {
         prepare_outgoing_packet(*conn, request);
         request.flags.flags.fin = 1;
@@ -594,32 +585,32 @@ int rsp_close(rsp_connection_t rsp)
         request.sequence = htonl(conn->current_seq);
         // buffer has no data
         
-        conn->connection_state = RSP_STATE_WECLOSED;
+        conn->ourCloseSent;
         pthread_cond_broadcast(&conn->connection_state_cond);
         
         ackq_enqueue_packet(conn->ackq, request, 1);
-        // (if sending the fin packet worked)
-        if (!rsp_transmit_wrap(&request))
-        {
-            // Since we were able to send the fin, wait for it to be acked or timed out
-            while(RSP_STATE_CLOSED != conn->connection_state && RSP_STATE_RST != conn->connection_state && !(conn->ourCloseAcked && theirCloseRecieved))
-            {
-                pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
-            }
-        }
-        else
+        // (if sending the fin packet failed)
+        if (rsp_transmit_wrap(&request))
         {
             // Couldn't send. Something is quite broken getting to the RSP server
-            conn->connection_state = RSP_STATE_RST;
             pthread_cond_broadcast(&conn->connection_state_cond);
+            conn->connection_state = RSP_STATE_RST;
         }
     }
     
+    // Since we were able to send the fin, wait for it to be acked or timed out
+    while(RSP_STATE_RST != conn->connection_state && !(conn->ourCloseAcked && theirCloseRecieved))
+    {
+        pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
+    }
+    
     // Unlock so the timer can see it should stop
+#warning need to rejigger the timer so it sees ourCloseAcked as the signal to stop
     pthread_mutex_unlock(&conn->connection_state_lock);
     
     pthread_join(conn->timer_thread, nullptr);
     
+    // Note, I think this is already handled in the read thread
     pthread_mutex_lock(&g_connectionsLock);
     pthread_mutex_lock(&conn->connection_state_lock);
     // Remove from incoming list to make it so it will not be referenced by reader after the following cleanup.
