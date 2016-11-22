@@ -380,6 +380,10 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 while (!thisConn->aheadPackets.empty() && (nextPkt = thisConn->aheadPackets.find(thisConn->recv_highwater)) != thisConn->aheadPackets.end())
                 {
                     // ... process it also
+                    if (DEBUG)
+                    {
+                        std::cerr << "Pulling packet seq " << +thisConn->recv_highwater << " from the ahead queue." << std::endl;
+                    }
                     process_acked_packet(thisConn, nextPkt->second);
                     thisConn->aheadPackets.erase(nextPkt);
                 }
