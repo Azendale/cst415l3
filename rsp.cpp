@@ -195,7 +195,7 @@ static void * rsp_timer(void * args)
             }
         }
         
-        getNextAckqPacketDelay(conn, expireDelay, sequenceTotal);
+        getNextAckqPacketDelay(conn, expireDelay);
     }
     pthread_mutex_unlock(&conn->connection_state_lock);
     
@@ -216,17 +216,23 @@ static void sendAcket(RspData & conn, uint8_t length)
 }
 
 // Assumes caller has conn locked
+// Sends packets from the waiting sendq
+// NOT for resending timed out packets (then you would have duplicates in ackq)
 void check_send(RspData & conn)
 {
     int send_permitted_count = conn.window - conn.ackq.size();
     rsp_message_t * queuePacket = nullptr;
-    while (send_permitted_count > 0 && (queuePacket = Q_Dequeue_Nowait(conn->sendq))
+    while (send_permitted_count > 0 && (queuePacket = static_cast<rsp_message_t *>(Q_Dequeue_Nowait(conn.sendq))))
     {
+        ackq_entry_t ackEntry;
         --send_permitted_count;
-#warning how will sequence numbers work 
-        // They will be already set when the packet is put in the queue
-#warning put packet in ackq
+        ackEntry.lastSent = timestamp();
+        ackEntry.sendCount = 1;
+        memcpy(&(ackEntry.packet), queuePacket, sizeof(rsp_message_t));
+        conn.ackq.push_back(ackEntry);
         rsp_transmit_wrap(queuePacket);
+#warning need to check that enqueued packets are from the heap if we are deleteing them here
+        delete queuePacket;
     }
 }
 
@@ -345,13 +351,13 @@ static void * rsp_reader(void * args)
             if (incoming_packet.flags.flags.ack)
             {
                 it->second->ourCloseAcked = true;
-                // // Done already at the end of this if
+                // // Done already at the end of this 'if' block
                 // pthread_cond_broadcast(&it->second->connection_state_cond);
                 // sendq should already be closed
             }
             else
             {
-                // // Done already at the end of this if
+                // // Done already at the end of this 'if' block
                 // pthread_cond_broadcast(&it->second->connection_state_cond);
                 it->second->theirCloseRecieved = true;
                 Q_Close(it->second->recvq);
@@ -578,6 +584,7 @@ int rsp_close(rsp_connection_t rsp)
     // Always send a fin, as long as we haven't before
     if (! conn->ourCloseSent && RSP_STATE_RST != conn->connection_state)
     {
+        Q_Close(conn->sendq);
         prepare_outgoing_packet(*conn, request);
         request.flags.flags.fin = 1;
         // fin can have a single byte that gets thrown out according to Phil
@@ -585,7 +592,6 @@ int rsp_close(rsp_connection_t rsp)
         request.sequence = htonl(conn->current_seq);
         // buffer has no data
         
-        conn->ourCloseSent;
         pthread_cond_broadcast(&conn->connection_state_cond);
         
         ackq_enqueue_packet(conn->ackq, request, 1);
@@ -596,16 +602,16 @@ int rsp_close(rsp_connection_t rsp)
             pthread_cond_broadcast(&conn->connection_state_cond);
             conn->connection_state = RSP_STATE_RST;
         }
+        conn->ourCloseSent = true;
     }
     
     // Since we were able to send the fin, wait for it to be acked or timed out
-    while(RSP_STATE_RST != conn->connection_state && !(conn->ourCloseAcked && theirCloseRecieved))
+    while(RSP_STATE_RST != conn->connection_state && !(conn->ourCloseAcked && conn->theirCloseRecieved))
     {
         pthread_cond_wait(&conn->connection_state_cond, &conn->connection_state_lock);
     }
     
     // Unlock so the timer can see it should stop
-#warning need to rejigger the timer so it sees ourCloseAcked as the signal to stop
     pthread_mutex_unlock(&conn->connection_state_lock);
     
     pthread_join(conn->timer_thread, nullptr);

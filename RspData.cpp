@@ -4,7 +4,7 @@
 #include "RspData.h"
 #include "rsp_if.h"
 
-RspData::RspData(): src_port(0), dst_port(0), current_seq(0), connection_name(""), connection_state(RSP_STATE_UNOPENED), recv_highwater(-1), remoteConfirm_highwater(-1), quickstart(true), ackrun(0), ourCloseAcked(false), theirCloseRecieved(false), ourCloseSent(false)
+RspData::RspData(): src_port(0), dst_port(0), current_seq(0), connection_name(""), connection_state(RSP_STATE_UNOPENED), recv_highwater(-1), remoteConfirm_highwater(-1), quickstart(true), ackrun(0), ourCloseAcked(false), ourCloseSent(false), theirCloseRecieved(false)
 {
     recvq = Q_Init();
     sendq = Q_Init();
