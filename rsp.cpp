@@ -209,6 +209,11 @@ static void sendAcket(RspData & conn, uint8_t length)
         prepare_outgoing_packet(conn, ackPacket);
         ackPacket.ack_sequence = htonl(conn.recv_highwater);
         ackPacket.flags.flags.ack = 1;
+        // We only process their fin in order. So if this state flag is set, then we have hit their FIN packet in the stream, and a cumulative ack would include acking the fin, so set the fin flag for this (now) FIN+ACK packet
+        if (conn->theirCloseRecieved)
+        {
+            ackPacket.flags.flags.fin = 1;
+        }
         // send ack
         rsp_transmit_wrap(&ackPacket);
     }
@@ -234,6 +239,61 @@ void check_send(RspData & conn)
         delete queuePacket;
     }
 }
+
+// Assumes that locks g_connectionsLock and thisConn->connection_state_lock are locked
+// Caller's reponsibility to ensure that this is only called on packets where 
+// thisConn->recv_highwater == ntohl(incoming_packet.sequence)
+// IE only call it with the next packet
+// caller is expected to send acks for runs of packets, but this function will update
+// recv_highwater
+static void process_acked_packet(RspData * thisConn, rsp_message_t & incoming_packet)
+{
+    // Update sequence highwater
+    thisConn->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
+    
+    // Is packet FIN
+    if (incoming_packet.flags.flags.fin)
+    {
+        // Fin/acks not handled in this function, already handled by ack packet handling machinery
+        if (!incoming_packet.flags.flags.ack)
+        {
+            // // Done already at the end of this 'if' block
+            // pthread_cond_broadcast(&thisConn->connection_state_cond);
+            thisConn->theirCloseRecieved = true;
+            Q_Close(thisConn->recvq);
+            // Next 7 lines shouldn't be needed, should be covered by sendAcket function now that theirCloseRecieved is set
+            //rsp_message_t lastFin;
+            //prepare_outgoing_packet(*thisConn, lastFin);
+            //lastFin.flags.flags.fin = 1;
+            //lastFin.flags.flags.ack = 1;
+            //// Expecting that this incoming packet already updated the recv_highwater
+            //lastFin.ack_sequence = htonl(thisConn->recv_highwater);
+            //rsp_transmit_wrap(&lastFin);
+            }
+        
+        // We have the last packet from them, and the last ack from them
+        if (thisConn->theirCloseRecieved && thisConn->ourCloseAcked)
+        {
+            // // Allow close to erase us from the main map
+            // g_connections.erase(it);
+            thisConn->connection_state = RSP_STATE_CLOSED;
+        }
+        pthread_cond_broadcast(&thisConn->connection_state_cond);
+        return;
+
+    }
+    // don't enqueue data byte from fin packet, so "else if" instead of only if
+    // if we have any payload
+    else if (0 < incoming_packet.length)
+    {
+        sendAcket(*thisConn, incoming_packet.length);
+        rsp_message_t * queuedpacket = new rsp_message_t;
+        memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
+        Q_Enqueue(thisConn->recvq, queuedpacket);
+    }
+
+}
+
 
 // Assumes that locks g_connectionsLock and thisConn->connection_state_lock are locked
 static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming_packet)
@@ -269,8 +329,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
         return;
     }
     
-    // take stuff out of the timeout queue when it is acked
-    
+    // Is packet an ACK
     if (incoming_packet.flags.flags.ack)
     {
 #warning need to implement window size updates -- see slide 17
@@ -278,6 +337,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
 #warning on acks that remove from the queue, see if we can send from to-be-sent queue -- see slide 15
         uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
         
+        // take stuff out of the timeout queue when it is acked
         while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
         {
             printPacketStderr("rm_ackq:  ", thisConn->ackq.front().packet, red);
@@ -301,62 +361,39 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
         thisConn->remoteConfirm_highwater = receivedThru;
     }
     
-    // if packet's byte range does not start at the end of the last byte we have, drop it
-    if (ntohl(incoming_packet.sequence) != thisConn->recv_highwater)
-    {
-#warning insert packet in out of order queue, IF it is past where we were expecting instead of before (throw away if before, but send an ack.)
-#warning on queue insert, see if that gives a run of in order packets. If so, send ack for end of in order sequence and move packets to recv q -- see slide 20
-        // ack what we have already
-        sendAcket(*thisConn, incoming_packet.length);
-        return;
-    }
-    
-#warning should move processing packets to their own function so we can handle them one at a time as they happen out of the out of order queue -- process_acked_packet()?
-    thisConn->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
-    
-    // Is packet FIN
-    if (incoming_packet.flags.flags.fin)
-    {
-        if (incoming_packet.flags.flags.ack)
-        {
-            thisConn->ourCloseAcked = true;
-            // // Done already at the end of this 'if' block
-            // pthread_cond_broadcast(&thisConn->connection_state_cond);
-            // sendq should already be closed
-        }
-        else
-        {
-            // // Done already at the end of this 'if' block
-            // pthread_cond_broadcast(&thisConn->connection_state_cond);
-            thisConn->theirCloseRecieved = true;
-            Q_Close(thisConn->recvq);
-            rsp_message_t lastFin;
-            prepare_outgoing_packet(*thisConn, lastFin);
-            lastFin.flags.flags.fin = 1;
-            lastFin.flags.flags.ack = 1;
-            // Expecting that this incoming packet already updated the recv_highwater
-            lastFin.ack_sequence = htonl(thisConn->recv_highwater);
-            rsp_transmit_wrap(&lastFin);
-            }
-        
-        // We have the last packet from them, and the last ack from them
-        if (thisConn->theirCloseRecieved && thisConn->ourCloseAcked)
-        {
-            // // Allow close to erase us from the main map
-            // g_connections.erase(it);
-            thisConn->connection_state = RSP_STATE_CLOSED;
-        }
-        pthread_cond_broadcast(&thisConn->connection_state_cond);
-        return;
-    }
-    
-    // if we have any payload
+    // if we have any payload (and therefore the other end will see an ack as acking this packet)
     if (0 < incoming_packet.length)
     {
+        uint32_t incomingSeq = ntohl(incoming_packet.sequence);
+        if (incomingSeq >= thisConn->recv_highwater)
+        {
+            // Packet is not a repeat, so it will either be enqueued to the data queue or put in the out of order map
+            if (incomingSeq == thisConn->recv_highwater)
+            {
+                // A packet for "now" in the stream
+#warning would call proposed process_acked_packet() function here
+#warning loop handling each packet we can pull out of the map with the same function
+#warning on queue insert, see if that gives a run of in order packets. If so, send ack for end of in order sequence and move packets to recv q -- see slide 20
+                process_acked_packet(thisConn, incoming_packet);
+                std::map<uint32_t, rsp_message_t>::iterator nextPkt;
+                // While there is a packet in the ahead map that is next in line ...
+                while (!thisConn->aheadPackets.empty() && (nextPkt = thisConn->aheadPackets.find(thisConn->recv_highwater)) != thisConn->aheadPackets.end())
+                {
+                    // ... process it also
+                    process_acked_packet(thisConn, nextPkt->second);
+                    thisConn.erase(nextPkt);
+                }
+            }
+            else
+            {
+                // A packet from the future -- put it in the map
+                // remember that key is sequence IN HOST ORDER
+#warning insert packet in out of order map, IF it is past where we were expecting instead of before (throw away if before, but send an ack.)
+                thisConn.aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
+            }
+        }
+        // This will either ack what we have already, or ack a run of packets, including FINACKing if we have seen their fin
         sendAcket(*thisConn, incoming_packet.length);
-        rsp_message_t * queuedpacket = new rsp_message_t;
-        memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
-        Q_Enqueue(thisConn->recvq, queuedpacket);
     }
 }
 
