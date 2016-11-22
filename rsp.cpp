@@ -270,8 +270,12 @@ static void * rsp_reader(void * args)
             pthread_mutex_unlock(&g_connectionsLock);
             continue;
         }
+        // Shouldn't rely on the interator for our reference, because we may remove from the container.
+        // Note that the memory is still valid because the client holds a pointer to it and it has not been deleted
+        RspData * thisConn = it->second;
+        
         // Handle packet
-        pthread_mutex_lock(&it->second->connection_state_lock);
+        pthread_mutex_lock(&thisConn->connection_state_lock);
         
         if (incoming_packet.flags.flags.err)
         {
@@ -282,12 +286,13 @@ static void * rsp_reader(void * args)
         // Is packet RST
         else if (incoming_packet.flags.flags.rst)
         {
-            it->second->connection_state = RSP_STATE_RST;
-            pthread_cond_broadcast(&it->second->connection_state_cond);
+            thisConn->connection_state = RSP_STATE_RST;
+            pthread_cond_broadcast(&thisConn->connection_state_cond);
             
-            pthread_mutex_unlock(&it->second->connection_state_lock);
+            pthread_mutex_unlock(&thisConn->connection_state_lock);
             // Remove from list of connections
-            g_connections.erase(it);
+            // // Allow close to erase us from the main map
+            //g_connections.erase(it);
             pthread_mutex_unlock(&g_connectionsLock);
             continue;
         }
@@ -296,87 +301,106 @@ static void * rsp_reader(void * args)
         {
             // SYNACK
             // Parse src and dest port, save them
-            it->second->src_port = incoming_packet.src_port;
-            it->second->dst_port = incoming_packet.dst_port;
+            thisConn->src_port = incoming_packet.src_port;
+            thisConn->dst_port = incoming_packet.dst_port;
             
             // Null terminate the name of the string, just in case it is not
             incoming_packet.connection_name[RSP_MAX_CONNECTION_NAME_LEN] = '\0';
-            it->second->connection_name = string(incoming_packet.connection_name);
+            thisConn->connection_name = string(incoming_packet.connection_name);
             
-            //it->second->far_window = ntohs(incoming_packet.window);
-            it->second->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
+            //thisConn->far_window = ntohs(incoming_packet.window);
+            thisConn->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
             
-            it->second->connection_state = RSP_STATE_OPEN;
-            pthread_cond_broadcast(&it->second->connection_state_cond);
+            thisConn->connection_state = RSP_STATE_OPEN;
+            pthread_cond_broadcast(&thisConn->connection_state_cond);
             pthread_mutex_unlock(&g_connectionsLock);
-            pthread_mutex_unlock(&it->second->connection_state_lock);
+            pthread_mutex_unlock(&thisConn->connection_state_lock);
             continue;
         }
         
         // take stuff out of the timeout queue when it is acked
+        
         if (incoming_packet.flags.flags.ack)
         {
 #warning need to implement window size updates -- see slide 17
 #warning need to only update on window sizes that remove things from the ackq
 #warning on acks that remove from the queue, see if we can send from to-be-sent queue -- see slide 15
             uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
-            while (! it->second->ackq.empty() && ntohl(it->second->ackq.front().packet.sequence) + it->second->ackq.front().packet.length <= receivedThru)
+            
+            while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
             {
-                printPacketStderr("rm_ackq:  ", it->second->ackq.front().packet, red);
-                it->second->ackq.pop_front();
+                printPacketStderr("rm_ackq:  ", thisConn->ackq.front().packet, red);
+                if (thisConn->ackq.front().packet.flags.flags.fin)
+                {
+                    // Setting this kills the timer next time it wakes
+                    thisConn->ourCloseAcked = true;
+                    pthread_cond_broadcast(&thisConn->connection_state_cond);
+                    
+                    // We have the last packet from them, and the last ack from them
+                    if (thisConn->theirCloseRecieved && thisConn->ourCloseAcked && RSP_STATE_RST != thisConn->connection_state)
+                    {
+                        // // Allow close to erase us from the main map
+                        // g_connections.erase(it);
+                        thisConn->connection_state = RSP_STATE_CLOSED;
+                        pthread_cond_broadcast(&thisConn->connection_state_cond);
+                    }
+                }
+                thisConn->ackq.pop_front();
             }
-            it->second->remoteConfirm_highwater = receivedThru;
+            thisConn->remoteConfirm_highwater = receivedThru;
         }
        
         // if packet's byte range does not start at the end of the last byte we have, drop it
-        if (ntohl(incoming_packet.sequence) != it->second->recv_highwater)
+        if (ntohl(incoming_packet.sequence) != thisConn->recv_highwater)
         {
 #warning insert packet in out of order queue, IF it is past where we were expecting instead of before (throw away if before, but send an ack.)
 #warning on queue insert, see if that gives a run of in order packets. If so, send ack for end of in order sequence and move packets to recv q -- see slide 20
             // ack what we have already
-            sendAcket(*it->second, incoming_packet.length);
+            sendAcket(*thisConn, incoming_packet.length);
 
             // do nothing/continue loop -- we're dropping this packet
             pthread_mutex_unlock(&g_connectionsLock);
-            pthread_mutex_unlock(&it->second->connection_state_lock);
+            pthread_mutex_unlock(&thisConn->connection_state_lock);
             continue;
         }
         
 #warning should move processing packets to their own function so we can handle them one at a time as they happen out of the out of order queue -- process_acked_packet()?
-        it->second->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
+        thisConn->recv_highwater = ntohl(incoming_packet.sequence) + incoming_packet.length;
         
         // Is packet FIN
         if (incoming_packet.flags.flags.fin)
         {
             if (incoming_packet.flags.flags.ack)
             {
-                it->second->ourCloseAcked = true;
+                thisConn->ourCloseAcked = true;
                 // // Done already at the end of this 'if' block
-                // pthread_cond_broadcast(&it->second->connection_state_cond);
+                // pthread_cond_broadcast(&thisConn->connection_state_cond);
                 // sendq should already be closed
             }
             else
             {
                 // // Done already at the end of this 'if' block
-                // pthread_cond_broadcast(&it->second->connection_state_cond);
-                it->second->theirCloseRecieved = true;
-                Q_Close(it->second->recvq);
+                // pthread_cond_broadcast(&thisConn->connection_state_cond);
+                thisConn->theirCloseRecieved = true;
+                Q_Close(thisConn->recvq);
                 rsp_message_t lastFin;
-                prepare_outgoing_packet(*it->second, lastFin);
+                prepare_outgoing_packet(*thisConn, lastFin);
                 lastFin.flags.flags.fin = 1;
                 lastFin.flags.flags.ack = 1;
                 // Expecting that this incoming packet already updated the recv_highwater
-                lastFin.ack_sequence = htonl(it->second->recv_highwater);
+                lastFin.ack_sequence = htonl(thisConn->recv_highwater);
                 rsp_transmit_wrap(&lastFin);
              }
             
             // We have the last packet from them, and the last ack from them
-            if (it->second->theirCloseRecieved && it->second->ourCloseAcked)
+            if (thisConn->theirCloseRecieved && thisConn->ourCloseAcked)
             {
-                g_connections.erase(it);
+                // // Allow close to erase us from the main map
+                // g_connections.erase(it);
+                thisConn->connection_state = RSP_STATE_CLOSED;
             }
-            pthread_cond_broadcast(&it->second->connection_state_cond);
-            pthread_mutex_unlock(&it->second->connection_state_lock);
+            pthread_cond_broadcast(&thisConn->connection_state_cond);
+            pthread_mutex_unlock(&thisConn->connection_state_lock);
             pthread_mutex_unlock(&g_connectionsLock);
             continue;
         }
@@ -385,12 +409,12 @@ static void * rsp_reader(void * args)
         // if we have any payload
         if (0 < incoming_packet.length)
         {
-            sendAcket(*it->second, incoming_packet.length);
+            sendAcket(*thisConn, incoming_packet.length);
             rsp_message_t * queuedpacket = new rsp_message_t;
             memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
-            Q_Enqueue(it->second->recvq, queuedpacket);
+            Q_Enqueue(thisConn->recvq, queuedpacket);
         }
-        pthread_mutex_unlock(&it->second->connection_state_lock);
+        pthread_mutex_unlock(&thisConn->connection_state_lock);
     }
     
     return nullptr;
