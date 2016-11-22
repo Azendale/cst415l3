@@ -370,9 +370,6 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             if (incomingSeq == thisConn->recv_highwater)
             {
                 // A packet for "now" in the stream
-#warning would call proposed process_acked_packet() function here
-#warning loop handling each packet we can pull out of the map with the same function
-#warning on queue insert, see if that gives a run of in order packets. If so, send ack for end of in order sequence and move packets to recv q -- see slide 20
                 process_acked_packet(thisConn, incoming_packet);
                 std::map<uint32_t, rsp_message_t>::iterator nextPkt;
                 // While there is a packet in the ahead map that is next in line ...
@@ -391,7 +388,6 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             {
                 // A packet from the future -- put it in the map
                 // remember that key is sequence IN HOST ORDER
-#warning insert packet in out of order map, IF it is past where we were expecting instead of before (throw away if before, but send an ack.)
                 thisConn->aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
             }
         }
