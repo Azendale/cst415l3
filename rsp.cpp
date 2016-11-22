@@ -210,7 +210,7 @@ static void sendAcket(RspData & conn, uint8_t length)
         ackPacket.ack_sequence = htonl(conn.recv_highwater);
         ackPacket.flags.flags.ack = 1;
         // We only process their fin in order. So if this state flag is set, then we have hit their FIN packet in the stream, and a cumulative ack would include acking the fin, so set the fin flag for this (now) FIN+ACK packet
-        if (conn->theirCloseRecieved)
+        if (conn.theirCloseRecieved)
         {
             ackPacket.flags.flags.fin = 1;
         }
@@ -381,7 +381,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 {
                     // ... process it also
                     process_acked_packet(thisConn, nextPkt->second);
-                    thisConn.erase(nextPkt);
+                    thisConn->aheadPackets.erase(nextPkt);
                 }
             }
             else
@@ -389,7 +389,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 // A packet from the future -- put it in the map
                 // remember that key is sequence IN HOST ORDER
 #warning insert packet in out of order map, IF it is past where we were expecting instead of before (throw away if before, but send an ack.)
-                thisConn.aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
+                thisConn->aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
             }
         }
         // This will either ack what we have already, or ack a run of packets, including FINACKing if we have seen their fin
