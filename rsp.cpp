@@ -286,7 +286,6 @@ static void process_acked_packet(RspData * thisConn, rsp_message_t & incoming_pa
     // if we have any payload
     else if (0 < incoming_packet.length)
     {
-        sendAcket(*thisConn, incoming_packet.length);
         rsp_message_t * queuedpacket = new rsp_message_t;
         memcpy(queuedpacket, &incoming_packet, sizeof(rsp_message_t));
         Q_Enqueue(thisConn->recvq, queuedpacket);
