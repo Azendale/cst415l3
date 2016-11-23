@@ -137,11 +137,22 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
 // retransmit lost packet -- retransmits the packet on the top of the ackq
 // returns false if this is the third time or we weren't able to send
 // precondition: there must actually be a packet in the head of the ackq
-static bool retransmitHeadPacket(rsp_connection_t conn)
+static bool retransmitHeadPacket(RspData * conn)
 {
-    ackq_entry_t & lostPacket = static_cast<RspData *>(conn)->ackq.front();
+    ackq_entry_t & lostPacket = conn->ackq.front();
     if (lostPacket.sendCount < 3)
     {
+        // Set next packet timeout farther away in case only one packet was actually dropped and waiting for an ack would get a bunch of packets removed from the ack waiting list
+        auto nextPacket = conn->ackq.begin();
+        // We know front is valid because the list is not emtpy inside this if
+        ++nextPacket;
+        // Now that it has been advanced, either it points at the end (and the list only has 1 item), or it points at the next packet
+        if (nextPacket != conn->ackq.end())
+        {
+            nextPacket->lastSent = timestamp();
+        }       
+        
+        // Now actually resend the packet at the head of the line
         lostPacket.lastSent = timestamp();
         lostPacket.sendCount += 1;
         return ! rsp_transmit_wrap(&lostPacket.packet);
