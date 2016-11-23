@@ -357,7 +357,11 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             }
             thisConn->ackq.pop_front();
         }
-        thisConn->remoteConfirm_highwater = receivedThru;
+        // Make sure acks can only move forward
+        if (thisConn->remoteConfirm_highwater < receivedThru)
+        {
+            thisConn->remoteConfirm_highwater = receivedThru;
+        }
     }
     
     // if we have any payload (and therefore the other end will see an ack as acking this packet)
