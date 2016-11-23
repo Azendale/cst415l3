@@ -380,6 +380,10 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             {
                 ++thisConn->window;
                 thisConn->ackrun = 0;
+                if (DEBUG)
+                {
+                    std::cerr << "Progress made after receiving ack, 'slow'start mode, window now << " +thisConn->window << "." << std::endl;
+                }
             }
             else
             {
@@ -388,6 +392,17 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 {
                    ++thisConn->window;
                    thisConn->ackrun = 0;
+                    if (DEBUG)
+                    {
+                        std::cerr << "Progress made after receiving ack, linear mode, window now << " +thisConn->window << " and ackrun reset." << std::endl;
+                    }
+                }
+                else
+                {
+                    if (DEBUG)
+                    {
+                        std::cerr << "Progress made after receiving ack, linear mode, window now << " +thisConn->window << "." << std::endl;
+                    }
                 }
             }
             thisConn->ackq.pop_front();
