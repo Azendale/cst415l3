@@ -444,7 +444,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 // remember that key is sequence IN HOST ORDER
                 if (DEBUG)
                 {
-                    std::cerr << "Insert packet seq " << +ntohl(incoming_packet.sequence) << " from the ahead queue." << std::endl;
+                    std::cerr << "Insert packet seq " << +ntohl(incoming_packet.sequence) << " into the ahead queue." << std::endl;
                 }
                 thisConn->aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
             }

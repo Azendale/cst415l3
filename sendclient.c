@@ -15,7 +15,7 @@ int main(int argc, char **argv)
     if (argc > 1) strcat(buff, argv[1]);
     strcat(buff, "\n");
 
-    rsp_init(2000);
+    rsp_init(2);
 
     rsp_connection_t rsp;
 
