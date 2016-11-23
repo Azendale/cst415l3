@@ -173,7 +173,14 @@ static void * rsp_timer(void * args)
             // If so, did the front one timeout while we were alseep?
             if ( (!conn->ackq.empty()) && conn->ackq.front().lastSent + RSP_TIMEOUT < timestamp())
             {
-#warning need to half window size on timeout, see slide 18
+                // Dropped a packet, resize window
+                conn->window /= 2;
+                if (conn->window < 1)
+                {
+                    conn->window = 1;
+                }
+                conn->quickstart = false;
+                
                 // packet was not acked, it is the first in the queue
                 // Returns false if this is more than the third time or we fail to transmit
                 if (!retransmitHeadPacket(conn))
