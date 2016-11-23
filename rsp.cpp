@@ -180,6 +180,10 @@ static void * rsp_timer(void * args)
                     conn->window = 1;
                 }
                 conn->quickstart = false;
+                if (DEBUG)
+                {
+                    std::cerr << "Dropped packet, window is now adjusted to " << +conn->window << "." << std::endl;
+                }
                 
                 // packet was not acked, it is the first in the queue
                 // Returns false if this is more than the third time or we fail to transmit
