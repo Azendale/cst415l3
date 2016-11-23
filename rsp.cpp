@@ -432,7 +432,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                     // ... process it also
                     if (DEBUG)
                     {
-                        std::cerr << "Pulling packet seq " << +thisConn->recv_highwater << " from the ahead queue." << std::endl;
+                        std::cerr << "Pulling packet seq " << +ntohl(nextPkt->second.sequence) << " from the ahead queue." << std::endl;
                     }
                     process_acked_packet(thisConn, nextPkt->second);
                     thisConn->aheadPackets.erase(nextPkt);
@@ -442,6 +442,10 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             {
                 // A packet from the future -- put it in the map
                 // remember that key is sequence IN HOST ORDER
+                if (DEBUG)
+                {
+                    std::cerr << "Insert packet seq " << +ntohl(incoming_packet.sequence) << " from the ahead queue." << std::endl;
+                }
                 thisConn->aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
             }
         }
