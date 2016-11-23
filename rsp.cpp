@@ -129,6 +129,7 @@ static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
     strncpy(packet.connection_name, conn.connection_name.c_str(), RSP_MAX_CONNECTION_NAME_LEN);
     packet.src_port = conn.src_port;
     packet.dst_port = conn.dst_port;
+    // This is ignored
     packet.window = htons(conn.window);
     // Not totally sure this shouldn't be set by the calling function. We'll see
     packet.sequence = htonl(conn.current_seq);
@@ -257,7 +258,6 @@ void check_send(RspData & conn)
         memcpy(&(ackEntry.packet), queuePacket, sizeof(rsp_message_t));
         conn.ackq.push_back(ackEntry);
         rsp_transmit_wrap(queuePacket);
-#warning need to check that enqueued packets are from the heap if we are deleteing them here
         delete queuePacket;
     }
 }
@@ -407,11 +407,12 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             }
             thisConn->ackq.pop_front();
         }
-#warning on acks that remove from the queue, see if we can send from to-be-sent queue -- see slide 15
+        
         // Make sure acks can only move forward
         if (thisConn->remoteConfirm_highwater < receivedThru)
         {
             thisConn->remoteConfirm_highwater = receivedThru;
+            check_send(*thisConn);
         }
     }
     
@@ -767,27 +768,33 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
         return -1;
     }
     RspData * conn = static_cast<RspData *>(rsp);
-    rsp_message_t outgoing_packet;
+    rsp_message_t * outgoing_packet;
     pthread_mutex_lock(&conn->connection_state_lock);
     if (RSP_STATE_OPEN != conn->connection_state)
     {
         pthread_mutex_unlock(&conn->connection_state_lock);
         return -1;
     }
-#warning put packet in to-be-sent queue instead in rsp_write
-#warning then need to trigger same behavior as the reader thread has when it gets an ack (to try to send as much as allowed). see slide 15
-    prepare_outgoing_packet(*conn, outgoing_packet);
     
-    outgoing_packet.length = size;
+    outgoing_packet = new rsp_message_t;
+    
+    if (nullptr == outgoing_packet)
+    {
+        pthread_mutex_unlock(&conn->connection_state_lock);
+        return -2;
+    }
+    prepare_outgoing_packet(*conn, *outgoing_packet);
+    
+    outgoing_packet->length = size;
     // LAB4 doesn't need split code but later labs will.
-    memcpy(outgoing_packet.buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
+    memcpy(outgoing_packet->buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
     conn->current_seq += size;
     
-    ackq_enqueue_packet(conn->ackq, outgoing_packet, 1);
-    int transmitResult = rsp_transmit_wrap(&outgoing_packet);
+    Q_Enqueue(conn->sendq, outgoing_packet);
+    check_send(*conn);
     
     pthread_mutex_unlock(&(conn->connection_state_lock));
-    return transmitResult;
+    return 0;
 }
 
 int rsp_read(rsp_connection_t rsp, void *buff, int size)
