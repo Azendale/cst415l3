@@ -354,10 +354,13 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
         uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
         
         // take stuff out of the timeout queue when it is acked
-        while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
+        for (auto it = thisConn->ackq.begin(); it != thisConn->ackq.end(); ++it)
         {
-            printPacketStderr("rm_ackq:  ", thisConn->ackq.front().packet, red);
-            if (thisConn->ackq.front().packet.flags.flags.fin)
+        //while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
+        if (ntohl(it->packet.sequence) + it->packet.length <= receivedThru)
+        {
+            printPacketStderr("rm_ackq:  ", it->packet, red);
+            if (it->packet.flags.flags.fin)
             {
                 // Setting this kills the timer next time it wakes
                 thisConn->ourCloseAcked = true;
@@ -403,7 +406,13 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                     }
                 }
             }
-            thisConn->ackq.pop_front();
+            //thisConn->ackq.pop_front();
+            thisConn->ackq.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
         }
         
         // Make sure acks can only move forward
