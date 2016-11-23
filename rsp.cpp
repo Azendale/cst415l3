@@ -408,6 +408,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
             }
             //thisConn->ackq.pop_front();
             thisConn->ackq.erase(it);
+            it = thisConn->ackq.begin();
         }
         else
         {
