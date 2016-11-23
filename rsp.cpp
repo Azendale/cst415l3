@@ -353,9 +353,6 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
     // Is packet an ACK
     if (incoming_packet.flags.flags.ack)
     {
-#warning need to implement window size updates -- see slide 17
-#warning need to only update on window sizes that remove things from the ackq
-#warning on acks that remove from the queue, see if we can send from to-be-sent queue -- see slide 15
         uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
         
         // take stuff out of the timeout queue when it is acked
@@ -377,8 +374,25 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                     pthread_cond_broadcast(&thisConn->connection_state_cond);
                 }
             }
+            
+            // Something came out the the ackq, adjust window
+            if (thisConn->quickstart)
+            {
+                ++thisConn->window;
+                thisConn->ackrun = 0;
+            }
+            else
+            {
+                ++thisConn->ackrun;
+                if (thisConn->ackrun >= thisConn->window)
+                {
+                   ++thisConn->window;
+                   thisConn->ackrun = 0;
+                }
+            }
             thisConn->ackq.pop_front();
         }
+#warning on acks that remove from the queue, see if we can send from to-be-sent queue -- see slide 15
         // Make sure acks can only move forward
         if (thisConn->remoteConfirm_highwater < receivedThru)
         {
