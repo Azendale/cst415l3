@@ -731,7 +731,6 @@ int rsp_close(rsp_connection_t rsp)
         // fin can have a single byte that gets thrown out according to Phil
         request->length = 1;
         conn->current_seq += 1;
-        request->sequence = htonl(conn->current_seq);
         // buffer has no data
         
         pthread_cond_broadcast(&conn->connection_state_cond);
