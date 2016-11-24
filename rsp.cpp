@@ -13,7 +13,7 @@
 #include <map>
 #include <sys/time.h>
 
-#define RSP_TIMEOUT 4000
+#define RSP_TIMEOUT 250
 #define DEBUG true
 
 static int g_window  = 256;
