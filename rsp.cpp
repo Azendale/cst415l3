@@ -260,6 +260,10 @@ void check_send(RspData & conn)
         memcpy(&(ackEntry.packet), queuePacket, sizeof(rsp_message_t));
         conn.ackq.push_back(ackEntry);
         rsp_transmit_wrap(queuePacket);
+        if (queuePacket->flags.flags.fin && !queuePacket->flags.flags.ack)
+        {
+            conn.ourCloseSent = true;
+        }
         delete queuePacket;
     }
 }
@@ -710,30 +714,30 @@ int rsp_close(rsp_connection_t rsp)
     RspData * conn = static_cast<RspData *>(rsp);
     
     // Send fin
-    rsp_message_t request;
     pthread_mutex_lock(&conn->connection_state_lock);
     // Always send a fin, as long as we haven't before
     if (! conn->ourCloseSent && RSP_STATE_RST != conn->connection_state)
     {
         Q_Close(conn->sendq);
-        prepare_outgoing_packet(*conn, request);
-        request.flags.flags.fin = 1;
+        rsp_message_t * request = new rsp_message_t;
+        
+        if (nullptr == request)
+        {
+            pthread_mutex_unlock(&conn->connection_state_lock);
+            return -2;
+        }
+        prepare_outgoing_packet(*conn, *request);
+        request->flags.flags.fin = 1;
         // fin can have a single byte that gets thrown out according to Phil
-        request.length = 1;
-        request.sequence = htonl(conn->current_seq);
+        request->length = 1;
+        conn->current_seq += 1;
+        request->sequence = htonl(conn->current_seq);
         // buffer has no data
         
         pthread_cond_broadcast(&conn->connection_state_cond);
         
-        ackq_enqueue_packet(conn->ackq, request, 1);
-        // (if sending the fin packet failed)
-        if (rsp_transmit_wrap(&request))
-        {
-            // Couldn't send. Something is quite broken getting to the RSP server
-            pthread_cond_broadcast(&conn->connection_state_cond);
-            conn->connection_state = RSP_STATE_RST;
-        }
-        conn->ourCloseSent = true;
+        Q_Enqueue(conn->sendq, request);
+        check_send(*conn);
     }
     
     // Since we were able to send the fin, wait for it to be acked or timed out
