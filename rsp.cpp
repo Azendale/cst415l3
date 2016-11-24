@@ -190,7 +190,9 @@ static void * rsp_timer(void * args)
                 conn->quickstart = false;
                 if (DEBUG)
                 {
+                    pthread_mutex_lock(&g_packetPrintLock);
                     std::cerr << "Dropped packet, window is now adjusted to " << +conn->window << ", packet ts " << conn->ackq.front().lastSent << ", now " << timestamp() << "." << std::endl;
+                    pthread_mutex_unlock(&g_packetPrintLock);
                 }
                 
                 printPacketStderr("tmout pkt:", conn->ackq.front().packet, magenta);
@@ -201,7 +203,9 @@ static void * rsp_timer(void * args)
                 {
                     if (DEBUG)
                     {
-                        std::cerr << "Killing connection " << conn->connection_name << " after packet seq " << htonl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 3 times." << std::endl;
+                        pthread_mutex_lock(&g_packetPrintLock);
+                        std::cerr << "Killing connection " << conn->connection_name << " after packet seq " << ntohl(conn->ackq.front().packet.sequence) << " and len " << +conn->ackq.front().packet.length << " timed out 3 times." << std::endl;
+                        pthread_mutex_unlock(&g_packetPrintLock);
                     }
                     conn->connection_state = RSP_STATE_RST;
                     rsp_message_t outgoing_packet;
@@ -383,7 +387,9 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 thisConn->ackrun = 0;
                 if (DEBUG)
                 {
+                    pthread_mutex_lock(&g_packetPrintLock);
                     std::cerr << "Progress made after receiving ack, 'slow'start mode, window now " <<  +thisConn->window << "." << std::endl;
+                    pthread_mutex_unlock(&g_packetPrintLock);
                 }
             }
             else
@@ -395,14 +401,18 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                    thisConn->ackrun = 0;
                     if (DEBUG)
                     {
+                        pthread_mutex_lock(&g_packetPrintLock);
                         std::cerr << "Progress made after receiving ack, linear mode, window now " <<  +thisConn->window << " and ackrun reset." << std::endl;
+                        pthread_mutex_unlock(&g_packetPrintLock);
                     }
                 }
                 else
                 {
                     if (DEBUG)
                     {
+                        pthread_mutex_lock(&g_packetPrintLock);
                         std::cerr << "Progress made after receiving ack, linear mode, window now " << +thisConn->window << "." << std::endl;
+                        pthread_mutex_unlock(&g_packetPrintLock);
                     }
                 }
             }
@@ -442,7 +452,9 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                     // ... process it also
                     if (DEBUG)
                     {
+                        pthread_mutex_lock(&g_packetPrintLock);
                         std::cerr << "Pulling packet seq " << +ntohl(nextPkt->second.sequence) << " from the ahead queue." << std::endl;
+                        pthread_mutex_unlock(&g_packetPrintLock);
                     }
                     process_acked_packet(thisConn, nextPkt->second);
                     thisConn->aheadPackets.erase(nextPkt);
@@ -454,7 +466,9 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 // remember that key is sequence IN HOST ORDER
                 if (DEBUG)
                 {
+                    pthread_mutex_lock(&g_packetPrintLock);
                     std::cerr << "Insert packet seq " << +ntohl(incoming_packet.sequence) << " into the ahead queue." << std::endl;
+                    pthread_mutex_unlock(&g_packetPrintLock);
                 }
                 thisConn->aheadPackets[ntohl(incoming_packet.sequence)] = incoming_packet;
             }
@@ -487,7 +501,9 @@ static void * rsp_reader(void * args)
             // Couldn't find matching connection
             if (DEBUG)
             {
+                pthread_mutex_lock(&g_packetPrintLock);
                 std::cerr << "Got a packet for connection name " << connName << " but there is no active connection by that name." << std::endl;
+                pthread_mutex_unlock(&g_packetPrintLock);
             }
         
             pthread_mutex_unlock(&g_connectionsLock);
