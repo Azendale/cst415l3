@@ -362,7 +362,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
         uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
         
         // take stuff out of the timeout queue when it is acked
-        for (auto it = thisConn->ackq.begin(); !thisConn->ackq.empty() && it != thisConn->ackq.end(); ++it)
+        for (auto it = thisConn->ackq.begin(); !thisConn->ackq.empty() && it != thisConn->ackq.end(); )
         {
         //while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
         if (ntohl(it->packet.sequence) + it->packet.length <= receivedThru)
@@ -421,8 +421,7 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 }
             }
             //thisConn->ackq.pop_front();
-            thisConn->ackq.erase(it);
-            it = thisConn->ackq.begin();
+            it = thisConn->ackq.erase(it);
         }
         else
         {
