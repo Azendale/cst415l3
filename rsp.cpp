@@ -362,11 +362,12 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
         uint32_t receivedThru = ntohl(incoming_packet.ack_sequence);
         
         // take stuff out of the timeout queue when it is acked
-        for (auto it = thisConn->ackq.begin(); !thisConn->ackq.empty() && it != thisConn->ackq.end(); )
+        //1for (auto it = thisConn->ackq.begin(); !thisConn->ackq.empty() && it != thisConn->ackq.end(); )
+        //1{
+        while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
+        //1if (ntohl(it->packet.sequence) + it->packet.length <= receivedThru)
         {
-        //while (! thisConn->ackq.empty() && ntohl(thisConn->ackq.front().packet.sequence) + thisConn->ackq.front().packet.length <= receivedThru)
-        if (ntohl(it->packet.sequence) + it->packet.length <= receivedThru)
-        {
+            auto it = &(thisConn->ackq.front());
             printPacketStderr("rm_ackq:  ", it->packet, red);
             if (it->packet.flags.flags.fin)
             {
@@ -378,7 +379,6 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                 if (thisConn->theirCloseRecieved && thisConn->ourCloseAcked && RSP_STATE_RST != thisConn->connection_state)
                 {
                     // // Allow close to erase us from the main map
-                    // g_connections.erase(it);
                     thisConn->connection_state = RSP_STATE_CLOSED;
                     pthread_cond_broadcast(&thisConn->connection_state_cond);
                 }
@@ -420,13 +420,13 @@ static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming
                     }
                 }
             }
-            //thisConn->ackq.pop_front();
-            it = thisConn->ackq.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
+            thisConn->ackq.pop_front();
+            //1it = thisConn->ackq.erase(it);
+        //1}
+        //1else
+        //1{
+            //1++it;
+        //1}
         }
         
         // Make sure acks can only move forward
