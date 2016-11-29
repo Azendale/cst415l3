@@ -100,6 +100,7 @@ static void printPacketStderr(std::string prestring, rsp_message_t & incoming_pa
     }
 }
 
+//Wraps an RSP transmit call so that it is printed when debugging is active
 static int rsp_transmit_wrap(rsp_message_t * packet)
 {
     // Comment if you don't want a packet capture on stderr
@@ -107,6 +108,7 @@ static int rsp_transmit_wrap(rsp_message_t * packet)
     return rsp_transmit(packet);
 }
 
+//Wraps an RSP receive call so that it is printed when debugging is active
 static int rsp_receive_wrap(rsp_message_t * packet)
 {
     int result = rsp_receive(packet);
@@ -131,6 +133,7 @@ static void getNextAckqPacketDelay(RspData * conn, uint64_t & delay)
     }
 }
 
+// Set the attributes that should be in common for all outgoing packets for a connection
 static void prepare_outgoing_packet(RspData & conn, rsp_message_t & packet)
 {
     memset(&packet, 0, sizeof(packet));
@@ -205,8 +208,7 @@ static void * rsp_timer(void * args)
                 
                 printPacketStderr("tmout pkt:", conn->ackq.front().packet, magenta);
                 
-                // packet was not acked, it is the first in the queue
-                // Returns false if this is more than the third time or we fail to transmit
+                // retransmitHeadPacket returns false if this is more than the third time or we fail to transmit
                 if (!retransmitHeadPacket(conn))
                 {
                     if (DEBUG)
@@ -234,6 +236,8 @@ static void * rsp_timer(void * args)
     return nullptr;
 }
 
+// Assumes caller has conn locked
+// Send an ack packet for how far we have recieved for this connection
 static void sendAcket(RspData & conn, uint8_t length)
 {
     if (0 < length)
@@ -242,7 +246,9 @@ static void sendAcket(RspData & conn, uint8_t length)
         prepare_outgoing_packet(conn, ackPacket);
         ackPacket.ack_sequence = htonl(conn.recv_highwater);
         ackPacket.flags.flags.ack = 1;
-        // We only process their fin in order. So if this state flag is set, then we have hit their FIN packet in the stream, and a cumulative ack would include acking the fin, so set the fin flag for this (now) FIN+ACK packet
+        // We only process their fin in order. So if this state flag is set, then we have hit 
+        // their FIN packet in the stream, and a cumulative ack would include acking the fin,
+        // so set the fin flag for this (now) FIN+ACK packet
         if (conn.theirCloseRecieved)
         {
             ackPacket.flags.flags.fin = 1;
@@ -297,21 +303,14 @@ static void process_acked_packet(RspData * thisConn, rsp_message_t & incoming_pa
             // pthread_cond_broadcast(&thisConn->connection_state_cond);
             thisConn->theirCloseRecieved = true;
             Q_Close(thisConn->recvq);
-            // Next 7 lines shouldn't be needed, should be covered by sendAcket function now that theirCloseRecieved is set
-            //rsp_message_t lastFin;
-            //prepare_outgoing_packet(*thisConn, lastFin);
-            //lastFin.flags.flags.fin = 1;
-            //lastFin.flags.flags.ack = 1;
-            //// Expecting that this incoming packet already updated the recv_highwater
-            //lastFin.ack_sequence = htonl(thisConn->recv_highwater);
-            //rsp_transmit_wrap(&lastFin);
+            // Sending FINACK shouldn't be needed here, should be covered by sendAcket function 
+            // now that theirCloseRecieved is set
             }
         
         // We have the last packet from them, and the last ack from them
         if (thisConn->theirCloseRecieved && thisConn->ourCloseAcked)
         {
-            // // Allow close to erase us from the main map
-            // g_connections.erase(it);
+            // Close will remove this connection from the main map when it sees the different state
             thisConn->connection_state = RSP_STATE_CLOSED;
         }
         pthread_cond_broadcast(&thisConn->connection_state_cond);
@@ -331,6 +330,7 @@ static void process_acked_packet(RspData * thisConn, rsp_message_t & incoming_pa
 
 
 // Assumes that locks g_connectionsLock and thisConn->connection_state_lock are locked
+// Processes a incoming packet for a connection.
 static void process_incoming_packet(RspData * thisConn, rsp_message_t & incoming_packet)
 {
     if (incoming_packet.flags.flags.err)
@@ -804,7 +804,6 @@ int rsp_write(rsp_connection_t rsp, void *buff, int size)
     prepare_outgoing_packet(*conn, *outgoing_packet);
     
     outgoing_packet->length = size;
-    // LAB4 doesn't need split code but later labs will.
     memcpy(outgoing_packet->buffer, buff, std::min(size, RSP_MAX_SEND_SIZE));
     conn->current_seq += size;
     
@@ -840,7 +839,7 @@ int rsp_read(rsp_connection_t rsp, void *buff, int size)
     }
     else
     {
-        // LAB4 assumes the requested size is the size of the packet,
+        // This lab assumes the requested size is the size of the packet,
         // so we will not deal with if they only wanted to take half
         // of the payload from a packet and leave the rest for the
         // next read in this version of the lab.
