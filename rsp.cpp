@@ -1,6 +1,6 @@
 // Author: Erik B. Andersen <erik@eoni.com>
 // CST415 Lab4 RSP implementation
-// Last modified: 2016-11-14
+// Last modified: 2016-11-28
 #include "rsp_if.h"
 #include "rsp.h"
 #include "queue.h"
@@ -40,6 +40,7 @@ static uint64_t timestamp()
     return timestamp;
 }
 
+// Sleep for one rsp timeout interval
 void sleepRspTimeout()
 {
     struct timespec delay;
@@ -79,14 +80,21 @@ static const std::string cyan("\033[0;36m");
 static const std::string magenta("\033[0;35m");
 static const std::string reset("\033[0m");
 
-
+// Prints out a packet. Prestring is a prefix to the string. Color is the color code to print the output with.
 static void printPacketStderr(std::string prestring, rsp_message_t & incoming_packet, std::string color)
 {
     if (DEBUG)
     {
         pthread_mutex_lock(&g_packetPrintLock);
         std::cerr << color;
-        std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " << incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " << +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<< +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " << +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<< +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved << "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) << ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}";
+        std::cerr << prestring << "{connection_name = \"" << incoming_packet.connection_name << "\", src_port = " <<
+        incoming_packet.src_port << ", dst_port = " << incoming_packet.dst_port << ", flags = {syn = " <<
+        +incoming_packet.flags.flags.syn << ", ack = " << +incoming_packet.flags.flags.ack << ", fin = "<<
+        +incoming_packet.flags.flags.fin << ", rst = "<< +incoming_packet.flags.flags.rst << ", err = " <<
+        +incoming_packet.flags.flags.err << ", nod = " << +incoming_packet.flags.flags.nod << ", nro = "<<
+        +incoming_packet.flags.flags.nro << ", reserved = "<< +incoming_packet.flags.flags.reserved <<
+        "}}, length = "<< +incoming_packet.length << ", window = " << ntohs(incoming_packet.window) <<
+        ", sequence = " << ntohl(incoming_packet.sequence) << ", ack_sequence = "<< ntohl(incoming_packet.ack_sequence) << "}";
         std::cerr <<  reset << std::endl;
         pthread_mutex_unlock(&g_packetPrintLock);
     }
