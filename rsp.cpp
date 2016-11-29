@@ -688,16 +688,6 @@ rsp_connection_t rsp_connect(const char *connection_name)
     return conn;
 }
 
-// timesSentSoFar includes this time, should already be set by caller
-static void ackq_enqueue_packet(std::list<ackq_entry_t> & ackq, rsp_message_t & outgoing_packet, uint8_t timesSentSoFar)
-{
-    ackq_entry_t queueItem;
-    memcpy(&(queueItem.packet), &outgoing_packet, sizeof(rsp_message_t));
-    queueItem.lastSent = timestamp();
-    queueItem.sendCount = timesSentSoFar;
-    ackq.push_back(queueItem);
-}
-
 int rsp_close(rsp_connection_t rsp)
 {
     RspData * conn = static_cast<RspData *>(rsp);
